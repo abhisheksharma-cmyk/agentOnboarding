@@ -1,0 +1,33 @@
+agents:
+  KYC:
+    active: kyc_agent_v1
+    versions:
+      kyc_agent_v1:
+        type: http
+        endpoint: http://localhost:5001/agents/kyc/decide
+        timeout_ms: 1500
+        enabled: true
+  AML:
+    active: aml_agent_v1
+    versions:
+      aml_agent_v1:
+        type: http
+        endpoint: http://localhost:5002/agents/aml/decide
+        timeout_ms: 1500
+        enabled: true
+  CREDIT:
+    active: credit_agent_v1
+    versions:
+      credit_agent_v1:
+        type: http
+        endpoint: http://localhost:5003/agents/credit/decide
+        timeout_ms: 2000
+        enabled: true
+  RISK:
+    active: risk_agent_v1
+    versions:
+      risk_agent_v1:
+        type: local
+        endpoint: ""
+        timeout_ms: 1000
+        enabled: true

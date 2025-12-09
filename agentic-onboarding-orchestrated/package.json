@@ -1,0 +1,24 @@
+{
+  "name": "agentic-onboarding-orchestrated",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "dotenv": "^17.2.3",
+    "express": "^4.19.0",
+    "js-yaml": "^4.1.1",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4",
+    "@types/node": "^18",
+    "@types/node-fetch": "^2.6.13",
+    "ts-node": "^10",
+    "typescript": "^5"
+  }
+}
