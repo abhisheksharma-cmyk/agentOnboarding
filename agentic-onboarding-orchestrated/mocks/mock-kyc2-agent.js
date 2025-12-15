@@ -1,8 +1,11 @@
 require("dotenv").config();
 const express = require("express");
-const app = express();
-app.use(express.json({ limit: "2mb" }));
+const { callGroq } = require("../groq/groqClient");
 
+const app = express();
+app.use(express.json({ limit: "5mb" }));
+
+// Lightweight PAN/Aadhaar heuristics reused from mock-kyc-agent
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/i;
 const AADHAAR_REGEX = /^\d{12}$/;
 
@@ -58,12 +61,45 @@ function aadhaarLooksValid(num) {
   return verhoeffCheck(num);
 }
 
+async function runGroqExtraction(applicant, documents) {
+  const payload = { applicant, documents };
+  const systemPrompt = `You are a KYC document extraction agent. Given applicant info and an array of documents (may include text, base64, or fields), extract key identity fields. Return ONLY valid JSON.
+Input JSON: ${JSON.stringify(payload)}
+Schema:
+{
+  "documents": [
+    {
+      "index": number, // index from input array
+      "type": string,
+      "number": string,
+      "name": string,
+      "dob": string,
+      "gender": string,
+      "looks_authentic": boolean,
+      "quality": "low" | "medium" | "high",
+      "reasons": [string]
+    }
+  ],
+  "summary_reasons": [string]
+}
+If unknown, return "" for strings and [] for arrays.`;
+  try {
+    const out = await callGroq(systemPrompt);
+    return out;
+  } catch (err) {
+    console.error("Groq extraction failed", err);
+    return { documents: [], summary_reasons: ["Groq extraction failed"] };
+  }
+}
+
 function evaluateDocument(doc, applicant) {
   const type = normalize(doc.type);
   const number = (doc.number || doc.id || "").toString().trim();
   const docName = doc.name || doc.holder || doc.fullName || "";
   const docDob = doc.dob || doc.dateOfBirth || "";
   const docGender = doc.gender || doc.sex || "";
+  const looksAuthentic = doc.looks_authentic === true;
+  const quality = doc.quality || "";
   const result = {
     score: 0,
     policyRefs: [],
@@ -85,6 +121,16 @@ function evaluateDocument(doc, applicant) {
     if (dobMatches) result.score += 0.1;
     if (genderMatches) result.score += 0.05;
   };
+
+  if (looksAuthentic) {
+    result.score += 0.1;
+  } else if (doc.looks_authentic === false) {
+    result.reasons.push("Document marked low authenticity by LLM extractor");
+    result.suspicious = true;
+  }
+
+  if (quality === "high") result.score += 0.05;
+  if (quality === "low") result.reasons.push("Low document quality from extractor");
 
   if (!number) {
     result.reasons.push("Document is missing an ID number");
@@ -169,21 +215,32 @@ function buildDecision({ applicant, documents }) {
       contradictory_signals: hasSuspicious || contradictory,
     },
     metadata: {
-      agent_name: "mock_kyc_http",
+      agent_name: "mock_kyc2_http",
       slot: "KYC",
-      version: "1.1.0",
+      version: "2.0.0",
     },
   };
 }
 
-app.post("/agents/kyc/decide", (req, res) => {
+app.post("/agents/kyc2/decide", async (req, res) => {
   const payload = req.body?.input?.context?.payload || {};
   const applicant = payload.applicant || {};
   const documents = payload.documents || payload.docs || [];
-  const decision = buildDecision({ applicant, documents });
+
+  const groqOut = await runGroqExtraction(applicant, documents);
+  const extractedDocs = groqOut?.documents || [];
+  const mergedDocs = documents.map((doc, idx) => {
+    const extracted = extractedDocs.find((d) => d.index === idx) || extractedDocs[idx] || {};
+    return { ...doc, ...extracted };
+  });
+
+  const decision = buildDecision({ applicant, documents: mergedDocs });
+  if (groqOut?.summary_reasons?.length) {
+    decision.reasons = [...groqOut.summary_reasons, ...decision.reasons];
+  }
   res.json(decision);
 });
 
-app.listen(5001, () => {
-  console.log("Mock KYC Agent running on http://localhost:5001");
+app.listen(5005, () => {
+  console.log("Mock KYC2 Agent (LLM extraction) running on http://localhost:5005");
 });

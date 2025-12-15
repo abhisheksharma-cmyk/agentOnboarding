@@ -53,9 +53,70 @@ next steps -
 1) enable document passing to the agent and giving it the ability to scan it and respond on it
 2) UI intigeration 
 3) refine the agentic responses to meet the contract and acheive good and satisfactory processing and outcome overall 
-4) run these service on docker images 
-5) create a top level card application service, that would record and keep track of all the applications 
-6) enable User enrolment workflow and database so user can retrieve the draft level application and its status 
-7) integrate with DB record keeping and caching mechanisms
-8) create a screen for human under writer, with all documents visible to him, for happy path and non happy path workflows
+
+4) create a top level card application service, that would record and keep track of all the applications 
+5) enable User enrolment workflow and database so user can retrieve the draft level application and its status 
+6) integrate with DB record keeping and caching mechanisms
+7) create a screen for human under writer, with all documents visible to him, for happy path and non happy path workflows
+
+8) add api integration for agents for credit query cibil api and kyc aadhar api 
+
+calling credit 2 agent
+
+curl -X POST http://localhost:5007/agents/credit2/decide   -H "Content-Type: application/json"   -d '{
+    "input": {
+      "context": {
+        "payload": {
+          "applicant": {
+            "monthly_income": 60000,
+            "monthly_liabilities": 8000,
+            "cibil_score": 710
+          },
+          "credit": {
+            "requested_amount": 800000,
+            "tenure_months": 60,
+            "annual_rate": 0.15
+          }
+        }
+      }
+    }
+  }'
+
+output:
+{"proposal":"approve","confidence":0.8,"reasons":["Income is reasonable","CIBIL score is good","Requested amount is within eligible limits"],"policy_refs":["FOIR 55%"],"flags":{"missing_data":false,"contradictory_signals":false},"max_eligible_amount":1200000,"metadata":{"agent_name":"mock_credit2_http","slot":"CREDIT","version":"2.0.0"}}
+
+calling aml2 agent :
+curl -X POST http://localhost:5006/agents/aml2/decide \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "context": {
+        "payload": {
+          "applicant": { "name": "Jane Doe", "country": "IN", "residencyCountry": "IN", "pepStatus": "none" },
+          "documents": [ { "type": "passport", "looks_authentic": true } ],
+          "signals": { "watchlist_hit": false, "monthly_cash_volume": 5000 }
+        }
+      }
+    }
+  }'
+
+
+calling kyc2 agent:
+curl -X POST http://localhost:5005/agents/kyc2/decide \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "context": {
+        "payload": {
+          "applicant": { "name": "Prakash Ranjan", "dob": "1994-07-05", "gender": "male" },
+          "documents": [
+            { "type": "aadhaar", "number": "918300746619", "name": "Prakash Ranjan", "dob": "05/07/1994", "gender": "male" },
+            { "type": "pan", "number": "ABCDE1234F", "name": "Sample Name", "dob": "01/01/1990" }
+          ]
+        }
+      }
+    }
+  }'
+
+
 
