@@ -35,13 +35,26 @@ export function loadRegistry(): RegistryConfig {
 export function resolveAgent(slot: SlotName): { agentId: string; config: AgentConfig } {
   const registry = loadRegistry();
   const slotConfig = registry.agents[slot];
+
   if (!slotConfig) {
     throw new Error(`No agent slot configured for ${slot}`);
   }
+
+  // Handle direct configuration (without versions)
+  if ('endpoint' in slotConfig) {
+    return {
+      agentId: slot,
+      config: slotConfig as unknown as AgentConfig
+    };
+  }
+
+  // Handle versioned configuration
   const activeId = slotConfig.active;
   const agentCfg = slotConfig.versions[activeId];
+
   if (!agentCfg || !agentCfg.enabled) {
     throw new Error(`Active agent '${activeId}' for slot '${slot}' is not enabled or missing`);
   }
+
   return { agentId: activeId, config: agentCfg };
 }

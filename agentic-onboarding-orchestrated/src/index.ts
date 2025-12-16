@@ -1,11 +1,13 @@
 
 import express from "express";
+import cors from 'cors';
 import { initOrchestrator } from "./orchestrator/orchestrator";
 import { startOnboarding } from "./workflows/onboardingWorkflow";
 import { AgentContext } from "./types/types";
 import { eventBus } from "./eventBus/eventBus";
 import { getTrace } from "./auditTracking/audit";
-import { AgentOutput } from "./types/types";
+import { AgentOutput, SlotName } from "./types/types";
+import { runAddressAgent } from "./agents/addressAgent";
 import { runKycAgent } from "./agents/kycAgent";
 import { runAmlAgent } from "./agents/amlAgent";
 import { runCreditAgent } from "./agents/creditAgent";
@@ -13,6 +15,14 @@ import { runRiskAgent } from "./agents/riskAgent";
 import { evaluateDecision } from "./decisionGateway/decisionGateway";
 
 const app = express();
+// Enable CORS for all routes
+app.use(cors({
+  origin: 'http://localhost:3000', // Your frontend URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 
 /**
@@ -38,6 +48,22 @@ app.get("/", (_req, res) => {
   res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
 });
 
+app.post('/address/verify', async (req, res) => {
+  const { line1, city, state, postalCode, country } = req.body;
+  const result = await runAddressAgent({
+    customerId: 'temp-customer',
+    applicationId: 'temp-application',
+    slot: 'ADDRESS_VERIFICATION' as SlotName,
+    payload: {
+      line1,
+      city: city || '',
+      state: state || '',
+      postalCode: postalCode || '',
+      country: country || ''
+    }
+  });
+  res.json(result);
+});
 /**
  * Start a full onboarding run.
  * Returns traceId immediately and, after a short delay, the final result + audit trail.

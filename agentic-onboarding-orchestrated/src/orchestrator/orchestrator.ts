@@ -4,6 +4,7 @@ import { runKycAgent } from "../agents/kycAgent";
 import { runAmlAgent } from "../agents/amlAgent";
 import { runCreditAgent } from "../agents/creditAgent";
 import { runRiskAgent } from "../agents/riskAgent";
+import { runAddressAgent } from "../agents/addressAgent";
 import { evaluateDecision } from "../decisionGateway/decisionGateway";
 import { AgentContext } from "../types/types";
 import { audit } from "../auditTracking/audit";
@@ -32,6 +33,22 @@ export function initOrchestrator() {
     const final = evaluateDecision(out);
     audit(traceId, "kyc.completed", { agentOutput: out, finalDecision: final, durationMs });
     eventBus.publish("onboarding.kyc_complete", { out, final, ctx, durationMs }, traceId);
+    if (final === "APPROVE") {
+      eventBus.publish("onboarding.address_verification", ctx, traceId);
+    } else {
+      eventBus.publish("onboarding.finished", { final, out }, traceId);
+    }
+  });
+
+  eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
+    const ctx: AgentContext = data;
+    audit(traceId, "address_verification.invoked", { ctx });
+    const start = Date.now();
+    const out = await runAddressAgent(ctx);
+    const durationMs = Date.now() - start;
+    const final = evaluateDecision(out);
+    audit(traceId, "address_verification.completed", { agentOutput: out, finalDecision: final, durationMs });
+    eventBus.publish("onboarding.address_verification_complete", { out, final, ctx, durationMs }, traceId);
     if (final === "APPROVE") {
       eventBus.publish("onboarding.aml", ctx, traceId);
     } else {

@@ -11,7 +11,7 @@ async function callGroq(systemPrompt) {
       "Authorization": `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: "mixtral-8x7b-32768",   // or your desired model
+      model: "llama3-70b-8192",   // Updated to use the latest supported model
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: "Return ONLY valid JSON following the contract." }
