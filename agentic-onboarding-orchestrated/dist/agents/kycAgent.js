@@ -10,9 +10,22 @@ const httpHelper_1 = require("../utils/httpHelper");
 async function runKycAgent(ctx) {
     const { agentId, config } = (0, agentRegistry_1.resolveAgent)("KYC");
     if (config.type === "http") {
-        const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-        out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
-        return out;
+        try {
+            const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
+            out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
+            return out;
+        }
+        catch (err) {
+            // Graceful degradation if HTTP agent is down/unreachable.
+            return {
+                proposal: "escalate",
+                confidence: 0.4,
+                reasons: [`KYC HTTP agent unreachable: ${err?.message || err}`],
+                policy_refs: [],
+                flags: { missing_data: true, contradictory_signals: true },
+                metadata: { agent_name: agentId, slot: "KYC" },
+            };
+        }
     }
     // Fallback local behavior
     return {
@@ -24,3 +37,4 @@ async function runKycAgent(ctx) {
         metadata: { agent_name: "kyc_local_fallback", slot: "KYC" },
     };
 }
+//# sourceMappingURL=kycAgent.js.map

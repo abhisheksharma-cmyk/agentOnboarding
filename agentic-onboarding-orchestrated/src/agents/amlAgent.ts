@@ -8,9 +8,20 @@ import { callHttpAgent } from "../utils/httpHelper";
 export async function runAmlAgent(ctx: AgentContext): Promise<AgentOutput> {
   const { agentId, config } = resolveAgent("AML");
   if (config.type === "http") {
-    const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
-    out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "AML" };
-    return out;
+    try {
+      const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
+      out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "AML" };
+      return out;
+    } catch (err) {
+      return {
+        proposal: "escalate",
+        confidence: 0.5,
+        reasons: [`AML HTTP agent unreachable: ${(err as Error)?.message || err}`],
+        policy_refs: [],
+        flags: { provider_high_risk: false, contradictory_signals: true },
+        metadata: { agent_name: agentId, slot: "AML" },
+      };
+    }
   }
 
   return {

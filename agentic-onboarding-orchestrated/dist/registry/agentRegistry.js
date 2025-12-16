@@ -31,3 +31,4 @@ function resolveAgent(slot) {
     }
     return { agentId: activeId, config: agentCfg };
 }
+//# sourceMappingURL=agentRegistry.js.map

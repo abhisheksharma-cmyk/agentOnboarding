@@ -32,29 +32,63 @@ app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
 });
 /**
+ * Wait for a run result up to a short timeout so risk decision can be returned.
+ */
+function waitForResult(traceId, maxMs = 30000) {
+    return new Promise((resolve) => {
+        // Fast-path if already present
+        const existing = runResults[traceId];
+        if (existing) {
+            resolve({ status: "completed", result: existing });
+            return;
+        }
+        let settled = false;
+        const timeout = setTimeout(() => {
+            if (settled)
+                return;
+            settled = true;
+            unsubscribe?.();
+            resolve({ status: "pending", result: null });
+        }, maxMs);
+        const unsubscribe = eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId: t, data }) => {
+            if (settled)
+                return;
+            if (t !== traceId)
+                return;
+            settled = true;
+            clearTimeout(timeout);
+            unsubscribe?.();
+            resolve({ status: "completed", result: data });
+        });
+    });
+}
+/**
  * Start a full onboarding run.
- * Returns traceId immediately and, after a short delay, the final result + audit trail.
+ * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
 app.post("/onboarding/start", async (req, res) => {
-    const traceId = generateTraceId();
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "KYC",
-        payload: req.body.payload || {},
-    };
-    (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
-    // Simple wait-loop for demo (not for production)
-    setTimeout(() => {
-        const result = runResults[traceId] || null;
+    try {
+        const traceId = generateTraceId();
+        const ctx = {
+            customerId: req.body.customerId || "cus_demo",
+            applicationId: req.body.applicationId || "ca_demo",
+            slot: "KYC",
+            payload: req.body.payload || {},
+        };
+        (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
+        const { status, result } = await waitForResult(traceId);
         const auditTrail = (0, audit_1.getTrace)(traceId);
-        res.json({
-            traceId,
-            status: result ? "completed" : "pending",
-            result,
-            auditTrail,
+        return res.json({ traceId, status, result, auditTrail });
+    }
+    catch (err) {
+        // Surface errors instead of hanging the request while debugging.
+        // eslint-disable-next-line no-console
+        console.error("onboarding/start failed", err);
+        return res.status(500).json({
+            status: "error",
+            message: err?.message || "Unexpected error",
         });
-    }, 400);
+    }
 });
 /**
  * Fetch audit trail and result for a given traceId (idempotent/async-safe).

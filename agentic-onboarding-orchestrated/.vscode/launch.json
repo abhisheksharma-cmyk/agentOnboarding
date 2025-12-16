@@ -11,8 +11,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\mocks\\mock-kyc-agent.js",
-            "preLaunchTask": "tsc: build - tsconfig.json",
+            "program": "${workspaceFolder}\\mocks\\mock-kyc2-agent.js",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
             ]
@@ -24,8 +23,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\mocks\\mock-aml-agent.js",
-            "preLaunchTask": "tsc: build - tsconfig.json",
+            "program": "${workspaceFolder}\\mocks\\mock-aml2-agent.js",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
             ]
@@ -37,8 +35,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\mocks\\mock-credit-agent.js",
-            "preLaunchTask": "tsc: build - tsconfig.json",
+            "program": "${workspaceFolder}\\mocks\\mock-credit2-agent.js",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
             ]
@@ -46,15 +43,11 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "AgentOrchestrator",
+            "name": "TSAgentOrchestrator1",
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\src\\index.ts",
-            "preLaunchTask": "tsc: build - tsconfig.json",
-            "outFiles": [
-                "${workspaceFolder}/dist/**/*.js"
-            ]
+            "program": "${workspaceFolder}\\dist\\index.js",
         }
     ]
 }

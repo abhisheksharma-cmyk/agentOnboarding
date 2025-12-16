@@ -37,3 +37,4 @@ async function runRiskAgent(ctx) {
         metadata: { agent_name: "risk_local", slot: "RISK" },
     };
 }
+//# sourceMappingURL=riskAgent.js.map

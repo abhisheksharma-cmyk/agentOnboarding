@@ -8,9 +8,20 @@ import { callHttpAgent } from "../utils/httpHelper";
 export async function runCreditAgent(ctx: AgentContext): Promise<AgentOutput> {
   const { agentId, config } = resolveAgent("CREDIT");
   if (config.type === "http") {
-    const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
-    out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };
-    return out;
+    try {
+      const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
+      out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };
+      return out;
+    } catch (err) {
+      return {
+        proposal: "escalate",
+        confidence: 0.5,
+        reasons: [`Credit HTTP agent unreachable: ${(err as Error)?.message || err}`],
+        policy_refs: [],
+        flags: { missing_data: true, contradictory_signals: true },
+        metadata: { agent_name: agentId, slot: "CREDIT" },
+      };
+    }
   }
 
   // Simple heuristic fallback

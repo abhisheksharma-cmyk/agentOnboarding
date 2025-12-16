@@ -16,19 +16,16 @@ const audit_1 = require("../auditTracking/audit");
  * - Captures per-step duration (latency per agent)
  */
 function initOrchestrator() {
-    eventBus_1.eventBus.subscribe("onboarding.started", async ({ data, traceId }) => {
+    // Entry
+    eventBus_1.eventBus.subscribe("onboarding.started", ({ data, traceId }) => {
         const ctx = data;
         (0, audit_1.audit)(traceId, "onboarding.started", { ctx });
         eventBus_1.eventBus.publish("onboarding.kyc", ctx, traceId);
     });
+    // KYC -> AML
     eventBus_1.eventBus.subscribe("onboarding.kyc", async ({ data, traceId }) => {
         const ctx = data;
-        (0, audit_1.audit)(traceId, "kyc.invoked", { ctx });
-        const start = Date.now();
-        const out = await (0, kycAgent_1.runKycAgent)(ctx);
-        const durationMs = Date.now() - start;
-        const final = (0, decisionGateway_1.evaluateDecision)(out);
-        (0, audit_1.audit)(traceId, "kyc.completed", { agentOutput: out, finalDecision: final, durationMs });
+        const { out, final, durationMs } = await runAndEvaluate(kycAgent_1.runKycAgent, ctx, traceId, "kyc");
         eventBus_1.eventBus.publish("onboarding.kyc_complete", { out, final, ctx, durationMs }, traceId);
         if (final === "APPROVE") {
             eventBus_1.eventBus.publish("onboarding.aml", ctx, traceId);
@@ -37,14 +34,10 @@ function initOrchestrator() {
             eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
         }
     });
+    // AML -> Credit
     eventBus_1.eventBus.subscribe("onboarding.aml", async ({ data, traceId }) => {
         const ctx = data;
-        (0, audit_1.audit)(traceId, "aml.invoked", { ctx });
-        const start = Date.now();
-        const out = await (0, amlAgent_1.runAmlAgent)(ctx);
-        const durationMs = Date.now() - start;
-        const final = (0, decisionGateway_1.evaluateDecision)(out);
-        (0, audit_1.audit)(traceId, "aml.completed", { agentOutput: out, finalDecision: final, durationMs });
+        const { out, final, durationMs } = await runAndEvaluate(amlAgent_1.runAmlAgent, ctx, traceId, "aml");
         eventBus_1.eventBus.publish("onboarding.aml_complete", { out, final, ctx, durationMs }, traceId);
         if (final === "APPROVE") {
             eventBus_1.eventBus.publish("onboarding.credit", ctx, traceId);
@@ -53,14 +46,10 @@ function initOrchestrator() {
             eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
         }
     });
+    // Credit -> Risk
     eventBus_1.eventBus.subscribe("onboarding.credit", async ({ data, traceId }) => {
         const ctx = data;
-        (0, audit_1.audit)(traceId, "credit.invoked", { ctx });
-        const start = Date.now();
-        const out = await (0, creditAgent_1.runCreditAgent)(ctx);
-        const durationMs = Date.now() - start;
-        const final = (0, decisionGateway_1.evaluateDecision)(out);
-        (0, audit_1.audit)(traceId, "credit.completed", { agentOutput: out, finalDecision: final, durationMs });
+        const { out, final, durationMs } = await runAndEvaluate(creditAgent_1.runCreditAgent, ctx, traceId, "credit");
         eventBus_1.eventBus.publish("onboarding.credit_complete", { out, final, ctx, durationMs }, traceId);
         if (final === "APPROVE") {
             eventBus_1.eventBus.publish("onboarding.risk", ctx, traceId);
@@ -69,15 +58,21 @@ function initOrchestrator() {
             eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
         }
     });
+    // Risk -> Finish
     eventBus_1.eventBus.subscribe("onboarding.risk", async ({ data, traceId }) => {
         const ctx = data;
-        (0, audit_1.audit)(traceId, "risk.invoked", { ctx });
-        const start = Date.now();
-        const out = await (0, riskAgent_1.runRiskAgent)(ctx);
-        const durationMs = Date.now() - start;
-        const final = (0, decisionGateway_1.evaluateDecision)(out);
-        (0, audit_1.audit)(traceId, "risk.completed", { agentOutput: out, finalDecision: final, durationMs });
+        const { out, final, durationMs } = await runAndEvaluate(riskAgent_1.runRiskAgent, ctx, traceId, "risk");
         eventBus_1.eventBus.publish("onboarding.risk_complete", { out, final, ctx, durationMs }, traceId);
         eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
     });
 }
+async function runAndEvaluate(runner, ctx, traceId, stage) {
+    (0, audit_1.audit)(traceId, `${stage}.invoked`, { ctx });
+    const start = Date.now();
+    const out = await runner(ctx);
+    const durationMs = Date.now() - start;
+    const final = (0, decisionGateway_1.evaluateDecision)(out);
+    (0, audit_1.audit)(traceId, `${stage}.completed`, { agentOutput: out, finalDecision: final, durationMs });
+    return { out, final, durationMs };
+}
+//# sourceMappingURL=orchestrator.js.map

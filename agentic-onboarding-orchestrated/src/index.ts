@@ -39,32 +39,65 @@ app.get("/", (_req, res) => {
 });
 
 /**
+ * Wait for a run result up to a short timeout so risk decision can be returned.
+ */
+function waitForResult(traceId: string, maxMs = 30000) {
+  return new Promise<{ status: "completed" | "pending"; result: any }>((resolve) => {
+    // Fast-path if already present
+    const existing = runResults[traceId];
+    if (existing) {
+      resolve({ status: "completed", result: existing });
+      return;
+    }
+
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unsubscribe?.();
+      resolve({ status: "pending", result: null });
+    }, maxMs);
+
+    const unsubscribe = eventBus.subscribe("onboarding.finished", ({ traceId: t, data }) => {
+      if (settled) return;
+      if (t !== traceId) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve({ status: "completed", result: data });
+    });
+  });
+}
+
+/**
  * Start a full onboarding run.
- * Returns traceId immediately and, after a short delay, the final result + audit trail.
+ * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
 app.post("/onboarding/start", async (req, res) => {
-  const traceId = generateTraceId();
+  try {
+    const traceId = generateTraceId();
 
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "KYC",
-    payload: req.body.payload || {},
-  };
+    const ctx: AgentContext = {
+      customerId: req.body.customerId || "cus_demo",
+      applicationId: req.body.applicationId || "ca_demo",
+      slot: "KYC",
+      payload: req.body.payload || {},
+    };
 
-  startOnboarding(ctx, traceId);
+    startOnboarding(ctx, traceId);
 
-  // Simple wait-loop for demo (not for production)
-  setTimeout(() => {
-    const result = runResults[traceId] || null;
+    const { status, result } = await waitForResult(traceId);
     const auditTrail = getTrace(traceId);
-    res.json({
-      traceId,
-      status: result ? "completed" : "pending",
-      result,
-      auditTrail,
+    return res.json({ traceId, status, result, auditTrail });
+  } catch (err) {
+    // Surface errors instead of hanging the request while debugging.
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+      status: "error",
+      message: (err as Error)?.message || "Unexpected error",
     });
-  }, 400);
+  }
 });
 
 /**
