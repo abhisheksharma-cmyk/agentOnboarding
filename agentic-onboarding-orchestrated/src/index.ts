@@ -25,9 +25,7 @@ app.use(cors({
 
 app.use(express.json());
 
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults: Record<string, any> = {};
 
 function generateTraceId(): string {
@@ -44,9 +42,7 @@ eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
   runResults[traceId] = data;
 });
 
-app.get("/", (_req, res) => {
-  res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
-});
+type WaitResult = { status: "completed" | "pending"; result: any };
 
 app.post('/address/verify', async (req, res) => {
   const { line1, city, state, postalCode, country } = req.body;
@@ -64,12 +60,10 @@ app.post('/address/verify', async (req, res) => {
   });
   res.json(result);
 });
-/**
- * Wait for a run result up to a short timeout so risk decision can be returned.
- */
-function waitForResult(traceId: string, maxMs = 30000) {
-  return new Promise<{ status: "completed" | "pending"; result: any }>((resolve) => {
-    // Fast-path if already present
+
+/** Wait until onboarding.finished fires (or timeout). */
+function waitForResult(traceId: string, maxMs = 42000): Promise<WaitResult> {
+  return new Promise<WaitResult>((resolve) => {
     const existing = runResults[traceId];
     if (existing) {
       resolve({ status: "completed", result: existing });
@@ -77,7 +71,7 @@ function waitForResult(traceId: string, maxMs = 30000) {
     }
 
     let settled = false;
-    const timeout = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (settled) return;
       settled = true;
       unsubscribe?.();
@@ -85,13 +79,30 @@ function waitForResult(traceId: string, maxMs = 30000) {
     }, maxMs);
 
     const unsubscribe = eventBus.subscribe("onboarding.finished", ({ traceId: t, data }) => {
-      if (settled) return;
-      if (t !== traceId) return;
+      if (settled || t !== traceId) return;
       settled = true;
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
       unsubscribe?.();
       resolve({ status: "completed", result: data });
     });
+  });
+}
+
+function buildContext(req: express.Request, slot: AgentContext["slot"]): AgentContext {
+  return {
+    customerId: req.body.customerId || "cus_demo",
+    applicationId: req.body.applicationId || "ca_demo",
+    slot,
+    payload: req.body.payload || {},
+  };
+}
+
+function sendError(res: express.Response, err: unknown) {
+  // eslint-disable-next-line no-console
+  console.error("onboarding/start failed", err);
+  return res.status(500).json({
+    status: "error",
+    message: (err as Error)?.message || "Unexpected error",
   });
 }
 
@@ -102,13 +113,7 @@ function waitForResult(traceId: string, maxMs = 30000) {
 app.post("/onboarding/start", async (req, res) => {
   try {
     const traceId = generateTraceId();
-
-    const ctx: AgentContext = {
-      customerId: req.body.customerId || "cus_demo",
-      applicationId: req.body.applicationId || "ca_demo",
-      slot: "KYC",
-      payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "KYC");
 
     startOnboarding(ctx, traceId);
 
@@ -116,19 +121,11 @@ app.post("/onboarding/start", async (req, res) => {
     const auditTrail = getTrace(traceId);
     return res.json({ traceId, status, result, auditTrail });
   } catch (err) {
-    // Surface errors instead of hanging the request while debugging.
-    // eslint-disable-next-line no-console
-    console.error("onboarding/start failed", err);
-    return res.status(500).json({
-      status: "error",
-      message: (err as Error)?.message || "Unexpected error",
-    });
+    return sendError(res, err);
   }
 });
 
-/**
- * Fetch audit trail and result for a given traceId (idempotent/async-safe).
- */
+/** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
   const traceId = req.params.traceId;
   const result = runResults[traceId] || null;
@@ -146,51 +143,27 @@ app.get("/", (_req, res) => {
 });
 
 app.post("/test/kyc", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "KYC",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "KYC");
   const out = await runKycAgent(ctx);
-  const finalDecision = evaluateDecision(out);
-  res.json({ agentOutput: out, finalDecision });
+  res.json({ agentOutput: out, finalDecision: evaluateDecision(out) });
 });
 
 app.post("/test/aml", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "AML",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "AML");
   const out = await runAmlAgent(ctx);
-  const finalDecision = evaluateDecision(out);
-  res.json({ agentOutput: out, finalDecision });
+  res.json({ agentOutput: out, finalDecision: evaluateDecision(out) });
 });
 
 app.post("/test/credit", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "CREDIT",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "CREDIT");
   const out = await runCreditAgent(ctx);
-  const finalDecision = evaluateDecision(out);
-  res.json({ agentOutput: out, finalDecision });
+  res.json({ agentOutput: out, finalDecision: evaluateDecision(out) });
 });
 
 app.post("/test/risk", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "RISK",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "RISK");
   const out = await runRiskAgent(ctx);
-  const finalDecision = evaluateDecision(out);
-  res.json({ agentOutput: out, finalDecision });
+  res.json({ agentOutput: out, finalDecision: evaluateDecision(out) });
 });
 
 

@@ -50,15 +50,20 @@ function normalizeDob(dob) {
   return (dob || "").replace(/[^0-9]/g, "").slice(0, 8);
 }
 
-function namesMatch(a, b) {
-  if (!a || !b) return false;
-  return normalize(a) === normalize(b);
-}
+const namesMatch = (a, b) => !!a && !!b && normalize(a) === normalize(b);
 
 function aadhaarLooksValid(num) {
   if (!AADHAAR_REGEX.test(num)) return false;
   if (/(.)\1{11}/.test(num)) return false; // reject same-digit repeats
   return verhoeffCheck(num);
+}
+
+function buildApplicantFields(applicant) {
+  return {
+    name: applicant?.name || applicant?.fullName || "",
+    dob: applicant?.dob || applicant?.dateOfBirth || "",
+    gender: applicant?.gender || applicant?.sex || "",
+  };
 }
 
 async function runGroqExtraction(applicant, documents) {
@@ -106,20 +111,42 @@ function evaluateDocument(doc, applicant) {
     reasons: [],
     suspicious: false,
     missingData: false,
+    matchedFields: 0,
+    totalFields: 0,
   };
 
-  const applicantName = applicant?.name || applicant?.fullName || "";
-  const applicantDob = applicant?.dob || applicant?.dateOfBirth || "";
-  const applicantGender = applicant?.gender || applicant?.sex || "";
+  const applicantFields = buildApplicantFields(applicant);
 
-  const nameMatches = namesMatch(docName, applicantName);
-  const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantDob);
-  const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantGender);
+  const nameMatches = namesMatch(docName, applicantFields.name);
+  const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantFields.dob);
+  const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantFields.gender);
 
   const applyMatches = () => {
-    if (nameMatches) result.score += 0.2;
-    if (dobMatches) result.score += 0.1;
-    if (genderMatches) result.score += 0.05;
+    if (nameMatches) {
+      result.score += 0.2;
+      result.matchedFields += 1;
+    } else if (docName && applicantFields.name) {
+      result.reasons.push("Name mismatch applicant vs document");
+      result.suspicious = true;
+    }
+    if (dobMatches) {
+      result.score += 0.1;
+      result.matchedFields += 1;
+    } else if (docDob && applicantFields.dob) {
+      result.reasons.push("DOB mismatch applicant vs document");
+      result.suspicious = true;
+    }
+    if (genderMatches) {
+      result.score += 0.05;
+      result.matchedFields += 1;
+    } else if (docGender && applicantFields.gender) {
+      result.reasons.push("Gender mismatch applicant vs document");
+      result.suspicious = true;
+    }
+    // Count fields considered
+    if (docName || applicantFields.name) result.totalFields += 1;
+    if (docDob || applicantFields.dob) result.totalFields += 1;
+    if (docGender || applicantFields.gender) result.totalFields += 1;
   };
 
   if (looksAuthentic) {
@@ -174,12 +201,16 @@ function buildDecision({ applicant, documents }) {
   let missingData = false;
   let policyConflict = false;
   let contradictory = false;
+  let matchedFields = 0;
+  let consideredFields = 0;
 
   const docResults = documents.map((doc) => {
     const res = evaluateDocument(doc, applicant);
     res.policyRefs.forEach((p) => policyRefs.add(p));
     if (res.missingData) missingData = true;
     if (res.suspicious) contradictory = true;
+    matchedFields += res.matchedFields;
+    consideredFields += res.totalFields;
     reasons.push(...res.reasons);
     return res;
   });
@@ -193,15 +224,18 @@ function buildDecision({ applicant, documents }) {
   const hasStrong = bestScore >= 0.75;
   const hasSuspicious = docResults.some((r) => r.suspicious);
   const hasMinimal = documents.length > 0 && bestScore >= 0.35;
+  const fieldMatchRatio = consideredFields ? matchedFields / consideredFields : 0;
+  const hasCoverage = fieldMatchRatio >= 0.5; // at least half of compared fields agree
 
   let proposal = "escalate";
-  if (hasStrong && !hasSuspicious) {
+  if (hasStrong && !hasSuspicious && hasCoverage) {
     proposal = "approve";
   } else if (!hasMinimal || hasSuspicious) {
     proposal = "escalate";
   }
 
-  const confidence = Math.max(0.35, Math.min(0.9, hasStrong ? bestScore : bestScore - 0.1));
+  const confidenceBase = hasStrong ? bestScore : bestScore - 0.1;
+  const confidence = Math.max(0.3, Math.min(0.9, confidenceBase * (hasCoverage ? 1 : 0.8)));
 
   return {
     proposal,

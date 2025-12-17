@@ -24,9 +24,7 @@ app.use((0, cors_1.default)({
     credentials: true
 }));
 app.use(express_1.default.json());
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults = {};
 function generateTraceId() {
     return (Date.now().toString(36) +
@@ -36,9 +34,6 @@ function generateTraceId() {
 (0, orchestrator_1.initOrchestrator)();
 eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
     runResults[traceId] = data;
-});
-app.get("/", (_req, res) => {
-    res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
 });
 app.post('/address/verify', async (req, res) => {
     const { line1, city, state, postalCode, country } = req.body;
@@ -56,19 +51,16 @@ app.post('/address/verify', async (req, res) => {
     });
     res.json(result);
 });
-/**
- * Wait for a run result up to a short timeout so risk decision can be returned.
- */
-function waitForResult(traceId, maxMs = 30000) {
+/** Wait until onboarding.finished fires (or timeout). */
+function waitForResult(traceId, maxMs = 42000) {
     return new Promise((resolve) => {
-        // Fast-path if already present
         const existing = runResults[traceId];
         if (existing) {
             resolve({ status: "completed", result: existing });
             return;
         }
         let settled = false;
-        const timeout = setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             if (settled)
                 return;
             settled = true;
@@ -76,15 +68,29 @@ function waitForResult(traceId, maxMs = 30000) {
             resolve({ status: "pending", result: null });
         }, maxMs);
         const unsubscribe = eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId: t, data }) => {
-            if (settled)
-                return;
-            if (t !== traceId)
+            if (settled || t !== traceId)
                 return;
             settled = true;
-            clearTimeout(timeout);
+            clearTimeout(timeoutId);
             unsubscribe?.();
             resolve({ status: "completed", result: data });
         });
+    });
+}
+function buildContext(req, slot) {
+    return {
+        customerId: req.body.customerId || "cus_demo",
+        applicationId: req.body.applicationId || "ca_demo",
+        slot,
+        payload: req.body.payload || {},
+    };
+}
+function sendError(res, err) {
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+        status: "error",
+        message: err?.message || "Unexpected error",
     });
 }
 /**
@@ -94,30 +100,17 @@ function waitForResult(traceId, maxMs = 30000) {
 app.post("/onboarding/start", async (req, res) => {
     try {
         const traceId = generateTraceId();
-        const ctx = {
-            customerId: req.body.customerId || "cus_demo",
-            applicationId: req.body.applicationId || "ca_demo",
-            slot: "KYC",
-            payload: req.body.payload || {},
-        };
+        const ctx = buildContext(req, "KYC");
         (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
         const { status, result } = await waitForResult(traceId);
         const auditTrail = (0, audit_1.getTrace)(traceId);
         return res.json({ traceId, status, result, auditTrail });
     }
     catch (err) {
-        // Surface errors instead of hanging the request while debugging.
-        // eslint-disable-next-line no-console
-        console.error("onboarding/start failed", err);
-        return res.status(500).json({
-            status: "error",
-            message: err?.message || "Unexpected error",
-        });
+        return sendError(res, err);
     }
 });
-/**
- * Fetch audit trail and result for a given traceId (idempotent/async-safe).
- */
+/** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
     const result = runResults[traceId] || null;
@@ -133,51 +126,28 @@ app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Reference" });
 });
 app.post("/test/kyc", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "KYC",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "KYC");
     const out = await (0, kycAgent_1.runKycAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    res.json({ agentOutput: out, finalDecision: (0, decisionGateway_1.evaluateDecision)(out) });
 });
 app.post("/test/aml", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "AML",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "AML");
     const out = await (0, amlAgent_1.runAmlAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    res.json({ agentOutput: out, finalDecision: (0, decisionGateway_1.evaluateDecision)(out) });
 });
 app.post("/test/credit", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "CREDIT",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "CREDIT");
     const out = await (0, creditAgent_1.runCreditAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    res.json({ agentOutput: out, finalDecision: (0, decisionGateway_1.evaluateDecision)(out) });
 });
 app.post("/test/risk", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "RISK",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "RISK");
     const out = await (0, riskAgent_1.runRiskAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    res.json({ agentOutput: out, finalDecision: (0, decisionGateway_1.evaluateDecision)(out) });
 });
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`Server listening on http://localhost:${port}`);
 });
+//# sourceMappingURL=index.js.map

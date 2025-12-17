@@ -17,7 +17,6 @@ const audit_1 = require("../auditTracking/audit");
  * - Captures per-step duration (latency per agent)
  */
 function initOrchestrator() {
-    // Entry
     eventBus_1.eventBus.subscribe("onboarding.started", ({ data, traceId }) => {
         const ctx = data;
         (0, audit_1.audit)(traceId, "onboarding.started", { ctx });
