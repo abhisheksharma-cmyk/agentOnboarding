@@ -40,22 +40,7 @@ eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
 app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
 });
-// app.post('/address/verify', async (req, res) => {
-//   const { line1, city, state, postalCode, country } = req.body;
-//   const result = await runAddressAgent({
-//     customerId: 'temp-customer',
-//     applicationId: 'temp-application',
-//     slot: 'ADDRESS_VERIFICATION' as SlotName,
-//     payload: {
-//       line1,
-//       city: city || '',
-//       state: state || '',
-//       postalCode: postalCode || '',
-//       country: country || ''
-//     }
-//   });
-//   res.json(result);
-// });
+
 app.post('/onboarding/verify-address', async (req, res) => {
     const { line1, city, state, postalCode, country } = req.body;
     const result = await (0, addressAgent_1.runAddressAgent)({
