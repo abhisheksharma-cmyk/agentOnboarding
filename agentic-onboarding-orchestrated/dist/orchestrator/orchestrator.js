@@ -6,6 +6,7 @@ const kycAgent_1 = require("../agents/kycAgent");
 const amlAgent_1 = require("../agents/amlAgent");
 const creditAgent_1 = require("../agents/creditAgent");
 const riskAgent_1 = require("../agents/riskAgent");
+const addressAgent_1 = require("../agents/addressAgent");
 const decisionGateway_1 = require("../decisionGateway/decisionGateway");
 const audit_1 = require("../auditTracking/audit");
 /**
@@ -27,6 +28,22 @@ function initOrchestrator() {
         const ctx = data;
         const { out, final, durationMs } = await runAndEvaluate(kycAgent_1.runKycAgent, ctx, traceId, "kyc");
         eventBus_1.eventBus.publish("onboarding.kyc_complete", { out, final, ctx, durationMs }, traceId);
+        if (final === "APPROVE") {
+            eventBus_1.eventBus.publish("onboarding.address_verification", ctx, traceId);
+        }
+        else {
+            eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
+        }
+    });
+    eventBus_1.eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
+        const ctx = data;
+        (0, audit_1.audit)(traceId, "address_verification.invoked", { ctx });
+        const start = Date.now();
+        const out = await (0, addressAgent_1.runAddressAgent)(ctx);
+        const durationMs = Date.now() - start;
+        const final = (0, decisionGateway_1.evaluateDecision)(out);
+        (0, audit_1.audit)(traceId, "address_verification.completed", { agentOutput: out, finalDecision: final, durationMs });
+        eventBus_1.eventBus.publish("onboarding.address_verification_complete", { out, final, ctx, durationMs }, traceId);
         if (final === "APPROVE") {
             eventBus_1.eventBus.publish("onboarding.aml", ctx, traceId);
         }

@@ -1,25 +1,36 @@
 import fetch from "node-fetch";
 import { AgentContext, AgentOutput } from "../types/types";
-
-export async function callHttpAgent(endpoint: string, ctx: AgentContext, timeoutMs: number): Promise<AgentOutput> {
+import { resolveAgent } from "../registry/agentRegistry";
+export async function callHttpAgent(
+  endpoint: string,
+  ctx: AgentContext,
+  timeoutMs: number = 30000
+): Promise<any> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input: { context: ctx } }),
-      signal: controller.signal as any,
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(ctx.payload),  // Make sure this matches the expected format
+      signal: controller.signal
     });
 
-    if (!res.ok) {
-      throw new Error(`Agent HTTP error ${res.status}`);
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const error = new Error(`HTTP error! status: ${response.status}`);
+      (error as any).cause = errorData;
+      throw error;
     }
 
-    const json = (await res.json()) as AgentOutput;
-    return json;
-  } finally {
-    clearTimeout(id);
+    return await response.json();
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
   }
 }

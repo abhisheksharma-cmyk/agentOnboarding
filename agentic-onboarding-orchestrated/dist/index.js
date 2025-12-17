@@ -4,16 +4,25 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
 const orchestrator_1 = require("./orchestrator/orchestrator");
 const onboardingWorkflow_1 = require("./workflows/onboardingWorkflow");
 const eventBus_1 = require("./eventBus/eventBus");
 const audit_1 = require("./auditTracking/audit");
+const addressAgent_1 = require("./agents/addressAgent");
 const kycAgent_1 = require("./agents/kycAgent");
 const amlAgent_1 = require("./agents/amlAgent");
 const creditAgent_1 = require("./agents/creditAgent");
 const riskAgent_1 = require("./agents/riskAgent");
 const decisionGateway_1 = require("./decisionGateway/decisionGateway");
 const app = (0, express_1.default)();
+// Enable CORS for all routes
+app.use((0, cors_1.default)({
+    origin: 'http://localhost:3000', // Your frontend URL
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
 app.use(express_1.default.json());
 /**
  * In-memory store for run results keyed by traceId.
@@ -30,6 +39,22 @@ eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
 });
 app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
+});
+app.post('/address/verify', async (req, res) => {
+    const { line1, city, state, postalCode, country } = req.body;
+    const result = await (0, addressAgent_1.runAddressAgent)({
+        customerId: 'temp-customer',
+        applicationId: 'temp-application',
+        slot: 'ADDRESS_VERIFICATION',
+        payload: {
+            line1,
+            city: city || '',
+            state: state || '',
+            postalCode: postalCode || '',
+            country: country || ''
+        }
+    });
+    res.json(result);
 });
 /**
  * Wait for a run result up to a short timeout so risk decision can be returned.

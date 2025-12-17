@@ -24,6 +24,14 @@ function resolveAgent(slot) {
     if (!slotConfig) {
         throw new Error(`No agent slot configured for ${slot}`);
     }
+    // Handle direct configuration (without versions)
+    if ('endpoint' in slotConfig) {
+        return {
+            agentId: slot,
+            config: slotConfig
+        };
+    }
+    // Handle versioned configuration
     const activeId = slotConfig.active;
     const agentCfg = slotConfig.versions[activeId];
     if (!agentCfg || !agentCfg.enabled) {

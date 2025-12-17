@@ -1,4 +1,12 @@
 agents:
+  ADDRESS_VERIFICATION:
+    active: address_v1
+    versions:
+      address_v1:
+        type: http
+        endpoint: http://localhost:5000/api/v1/verify
+        timeout_ms: 10000
+        enabled: true
   KYC:
     active: kyc_agent_v1
     versions:
