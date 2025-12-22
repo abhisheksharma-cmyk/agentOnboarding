@@ -7,10 +7,13 @@ const httpHelper_1 = require("../utils/httpHelper");
  * Credit Assessment agent wrapper.
  */
 async function runCreditAgent(ctx) {
-    const { agentId, config } = (0, agentRegistry_1.resolveAgent)("CREDIT");
+    const config = (0, agentRegistry_1.getAgentConfig)("CREDIT");
+    if (!config) {
+        throw new Error('No CREDIT agent configuration found');
+    }
     if (config.type === "http") {
         const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-        out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };
+        out.metadata = { ...(out.metadata || {}), agent_name: 'credit_assessment', slot: "CREDIT" };
         return out;
     }
     // Simple heuristic fallback

@@ -1,6 +1,5 @@
 import fetch from "node-fetch";
 import { AgentContext, AgentOutput } from "../types/types";
-import { resolveAgent } from "../registry/agentRegistry";
 export async function callHttpAgent(
   endpoint: string,
   ctx: AgentContext,

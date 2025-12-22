@@ -3,39 +3,62 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.loadRegistry = loadRegistry;
-exports.resolveAgent = resolveAgent;
+exports.loadAgentsConfig = loadAgentsConfig;
+exports.getAgentConfig = getAgentConfig;
+exports.getActiveAgents = getActiveAgents;
+// src/registry/agentRegistry.ts
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const js_yaml_1 = __importDefault(require("js-yaml"));
-let cache = null;
-function loadRegistry() {
-    if (cache)
-        return cache;
-    const file = path_1.default.join(process.cwd(), "config", "agents.yaml");
-    const raw = fs_1.default.readFileSync(file, "utf-8");
-    const parsed = js_yaml_1.default.load(raw);
-    cache = parsed;
-    return parsed;
+let agentsConfig = null;
+function loadAgentsConfig(configPath) {
+    if (agentsConfig)
+        return agentsConfig;
+    try {
+        const configFile = configPath || path_1.default.join(process.cwd(), 'config', 'agents.yaml');
+        const fileContents = fs_1.default.readFileSync(configFile, 'utf8');
+        agentsConfig = js_yaml_1.default.load(fileContents);
+        if (!agentsConfig || typeof agentsConfig !== 'object') {
+            throw new Error('Invalid agents configuration');
+        }
+        return agentsConfig;
+    }
+    catch (error) {
+        console.error('Failed to load agents configuration:', error);
+        throw new Error('Failed to load agents configuration');
+    }
 }
-function resolveAgent(slot) {
-    const registry = loadRegistry();
-    const slotConfig = registry.agents[slot];
+function getAgentConfig(slot, version) {
+    if (!agentsConfig) {
+        loadAgentsConfig();
+    }
+    const slotConfig = agentsConfig?.[slot];
     if (!slotConfig) {
-        throw new Error(`No agent slot configured for ${slot}`);
+        console.warn(`Slot ${slot} not found in configuration`);
+        return null;
     }
-    // Handle direct configuration (without versions)
-    if ('endpoint' in slotConfig) {
-        return {
-            agentId: slot,
-            config: slotConfig
-        };
+    const versionToUse = version || slotConfig.active;
+    const agentConfig = slotConfig.versions[versionToUse];
+    if (!agentConfig) {
+        console.warn(`Version ${versionToUse} not found for slot ${slot}`);
+        return null;
     }
-    // Handle versioned configuration
-    const activeId = slotConfig.active;
-    const agentCfg = slotConfig.versions[activeId];
-    if (!agentCfg || !agentCfg.enabled) {
-        throw new Error(`Active agent '${activeId}' for slot '${slot}' is not enabled or missing`);
+    if (!agentConfig.enabled) {
+        console.warn(`Agent ${slot} (${versionToUse}) is disabled`);
+        return null;
     }
-    return { agentId: activeId, config: agentCfg };
+    return agentConfig;
+}
+function getActiveAgents() {
+    if (!agentsConfig) {
+        loadAgentsConfig();
+    }
+    const activeAgents = {};
+    for (const [slot, slotConfig] of Object.entries(agentsConfig || {})) {
+        const agentConfig = getAgentConfig(slot);
+        if (agentConfig) {
+            activeAgents[slot] = agentConfig;
+        }
+    }
+    return activeAgents;
 }

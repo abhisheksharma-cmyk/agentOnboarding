@@ -1,12 +1,16 @@
 import { AgentContext, AgentOutput } from "../types/types";
-import { resolveAgent } from "../registry/agentRegistry";
+import { getAgentConfig } from "../registry/agentRegistry";
 import { callHttpAgent } from "../utils/httpHelper";
 
 /**
  * Credit Assessment agent wrapper.
  */
 export async function runCreditAgent(ctx: AgentContext): Promise<AgentOutput> {
-  const { agentId, config } = resolveAgent("CREDIT");
+  const agentInfo = getAgentConfig("CREDIT");
+  if (!agentInfo) {
+    throw new Error('No CREDIT agent configuration found');
+  }
+  const { agentId, config } = agentInfo;
   if (config.type === "http") {
     const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
     out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };

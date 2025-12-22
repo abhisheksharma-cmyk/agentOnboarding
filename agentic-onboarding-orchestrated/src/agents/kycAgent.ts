@@ -1,5 +1,5 @@
 import { AgentContext, AgentOutput } from "../types/types";
-import { resolveAgent } from "../registry/agentRegistry";
+import { getAgentConfig } from "../registry/agentRegistry";
 import { callHttpAgent } from "../utils/httpHelper";
 
 /**
@@ -7,7 +7,11 @@ import { callHttpAgent } from "../utils/httpHelper";
  * In production, this might call an external KYC LLM agent or vendor adapter.
  */
 export async function runKycAgent(ctx: AgentContext): Promise<AgentOutput> {
-  const { agentId, config } = resolveAgent("KYC");
+  const agentInfo = getAgentConfig("KYC");
+  if (!agentInfo) {
+    throw new Error('No KYC agent configuration found');
+  }
+  const { agentId, config } = agentInfo;
   if (config.type === "http") {
     const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
     out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };

@@ -38,6 +38,20 @@ function initOrchestrator() {
             eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
         }
     });
+    eventBus_1.eventBus.subscribe("onboarding.kyc_complete", async ({ data, traceId }) => {
+        const { out: kycResult, ctx } = data;
+        if (kycResult.proposal === 'approve') {
+            // Only proceed with address verification if KYC passed
+            eventBus_1.eventBus.publish("onboarding.address_verification", ctx, traceId);
+        }
+        else {
+            // If KYC failed, skip address verification and finish
+            eventBus_1.eventBus.publish("onboarding.finished", {
+                final: 'DENY',
+                out: kycResult
+            }, traceId);
+        }
+    });
     eventBus_1.eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
         const ctx = data;
         (0, audit_1.audit)(traceId, "address_verification.invoked", { ctx });
@@ -52,6 +66,36 @@ function initOrchestrator() {
         }
         else {
             eventBus_1.eventBus.publish("onboarding.finished", { final, out }, traceId);
+        }
+    });
+    eventBus_1.eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
+        const ctx = data;
+        (0, audit_1.audit)(traceId, "address_verification.invoked", { ctx });
+        try {
+            const start = Date.now();
+            const out = await (0, addressAgent_1.runAddressAgent)(ctx);
+            const durationMs = Date.now() - start;
+            const final = (0, decisionGateway_1.evaluateDecision)(out);
+            (0, audit_1.audit)(traceId, "address_verification.completed", {
+                agentOutput: out,
+                finalDecision: final,
+                durationMs
+            });
+            // Get the KYC result from the event data instead of context
+            const kycResult = await new Promise((resolve) => {
+                eventBus_1.eventBus.subscribeOnce("onboarding.kyc_complete", ({ data }) => {
+                    resolve(data.out);
+                });
+            });
+            // Publish the final result
+            eventBus_1.eventBus.publish("onboarding.finished", {
+                final,
+                out,
+                kycResult // Now using the KYC result from the event
+            }, traceId);
+        }
+        catch (error) {
+            // ... existing error handling ...
         }
     });
     eventBus_1.eventBus.subscribe("onboarding.aml", async ({ data, traceId }) => {

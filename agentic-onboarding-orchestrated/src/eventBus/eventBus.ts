@@ -19,8 +19,26 @@ class EventBus {
 
   publish(eventType: string, data: any, traceId: string) {
     const hs = this.handlers[eventType] || [];
-    for (const h of hs) {
+    // Create a copy of the handlers array to avoid issues if handlers are removed during iteration
+    const handlers = [...hs];
+    for (const h of handlers) {
       h({ type: eventType, data, traceId });
+    }
+  }
+
+  subscribeOnce(eventType: string, handler: Handler) {
+    const onceHandler = (event: EventEnvelope) => {
+      // Remove this handler after it's called once
+      this.unsubscribe(eventType, onceHandler);
+      handler(event);
+    };
+    this.subscribe(eventType, onceHandler);
+  }
+
+  private unsubscribe(eventType: string, handler: Handler) {
+    const handlers = this.handlers[eventType];
+    if (handlers) {
+      this.handlers[eventType] = handlers.filter(h => h !== handler);
     }
   }
 }

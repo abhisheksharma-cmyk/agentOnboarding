@@ -40,6 +40,20 @@ export function initOrchestrator() {
     }
   });
 
+  eventBus.subscribe("onboarding.kyc_complete", async ({ data, traceId }) => {
+    const { out: kycResult, ctx } = data;
+
+    if (kycResult.proposal === 'approve') {
+      // Only proceed with address verification if KYC passed
+      eventBus.publish("onboarding.address_verification", ctx, traceId);
+    } else {
+      // If KYC failed, skip address verification and finish
+      eventBus.publish("onboarding.finished", {
+        final: 'DENY',
+        out: kycResult
+      }, traceId);
+    }
+  });
   eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
     const ctx: AgentContext = data;
     audit(traceId, "address_verification.invoked", { ctx });
@@ -53,6 +67,36 @@ export function initOrchestrator() {
       eventBus.publish("onboarding.aml", ctx, traceId);
     } else {
       eventBus.publish("onboarding.finished", { final, out }, traceId);
+    }
+  });
+
+  eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
+    const ctx: AgentContext = data;
+    audit(traceId, "address_verification.invoked", { ctx });
+    try {
+      const start = Date.now();
+      const out = await runAddressAgent(ctx);
+      const durationMs = Date.now() - start;
+      const final = evaluateDecision(out);
+      audit(traceId, "address_verification.completed", {
+        agentOutput: out,
+        finalDecision: final,
+        durationMs
+      });
+      // Get the KYC result from the event data instead of context
+      const kycResult = await new Promise<any>((resolve) => {
+        eventBus.subscribeOnce("onboarding.kyc_complete", ({ data }) => {
+          resolve(data.out);
+        });
+      });
+      // Publish the final result
+      eventBus.publish("onboarding.finished", {
+        final,
+        out,
+        kycResult // Now using the KYC result from the event
+      }, traceId);
+    } catch (error: unknown) {
+      // ... existing error handling ...
     }
   });
 
