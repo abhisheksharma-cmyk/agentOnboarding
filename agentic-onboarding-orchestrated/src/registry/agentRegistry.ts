@@ -30,7 +30,10 @@ export function loadAgentsConfig(configPath?: string): AgentsConfig {
   try {
     const configFile = configPath || path.join(process.cwd(), 'config', 'agents.yaml');
     const fileContents = fs.readFileSync(configFile, 'utf8');
-    agentsConfig = yaml.load(fileContents) as AgentsConfig;
+    const yamlContent = yaml.load(fileContents) as any;
+
+    // The YAML file has agents directly at the root level
+    agentsConfig = yamlContent.agents || yamlContent;
 
     if (!agentsConfig || typeof agentsConfig !== 'object') {
       throw new Error('Invalid agents configuration');

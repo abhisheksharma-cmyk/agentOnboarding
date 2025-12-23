@@ -17,7 +17,9 @@ function loadAgentsConfig(configPath) {
     try {
         const configFile = configPath || path_1.default.join(process.cwd(), 'config', 'agents.yaml');
         const fileContents = fs_1.default.readFileSync(configFile, 'utf8');
-        agentsConfig = js_yaml_1.default.load(fileContents);
+        const yamlContent = js_yaml_1.default.load(fileContents);
+        // The YAML file has agents directly at the root level
+        agentsConfig = yamlContent.agents || yamlContent;
         if (!agentsConfig || typeof agentsConfig !== 'object') {
             throw new Error('Invalid agents configuration');
         }
@@ -34,30 +36,32 @@ function getAgentConfig(slot, version) {
     }
     const slotConfig = agentsConfig?.[slot];
     if (!slotConfig) {
-        console.warn(`Slot ${slot} not found in configuration`);
+        console.warn(`No configuration found for slot: ${slot}`);
         return null;
     }
-    const versionToUse = version || slotConfig.active;
-    const agentConfig = slotConfig.versions[versionToUse];
-    if (!agentConfig) {
-        console.warn(`Version ${versionToUse} not found for slot ${slot}`);
+    const agentVersion = version || slotConfig.active;
+    const config = slotConfig.versions[agentVersion];
+    if (!config) {
+        console.warn(`No configuration found for ${slot} version: ${agentVersion}`);
         return null;
     }
-    if (!agentConfig.enabled) {
-        console.warn(`Agent ${slot} (${versionToUse}) is disabled`);
+    if (!config.enabled) {
+        console.warn(`Agent ${slot} version ${agentVersion} is disabled`);
         return null;
     }
-    return agentConfig;
+    // The agent ID is in the format "slot-version"
+    const agentId = `${slot.toLowerCase()}-${agentVersion}`;
+    return { agentId, config };
 }
 function getActiveAgents() {
     if (!agentsConfig) {
         loadAgentsConfig();
     }
     const activeAgents = {};
-    for (const [slot, slotConfig] of Object.entries(agentsConfig || {})) {
-        const agentConfig = getAgentConfig(slot);
-        if (agentConfig) {
-            activeAgents[slot] = agentConfig;
+    for (const [slot] of Object.entries(agentsConfig || {})) {
+        const agentInfo = getAgentConfig(slot);
+        if (agentInfo) {
+            activeAgents[slot] = agentInfo;
         }
     }
     return activeAgents;

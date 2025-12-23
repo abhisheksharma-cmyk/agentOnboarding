@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import { AgentContext, AgentOutput } from "../types/types";
+import type { AgentContext } from '../agents/BaseAgent';
 export async function callHttpAgent(
   endpoint: string,
   ctx: AgentContext,
@@ -9,12 +9,22 @@ export async function callHttpAgent(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Extract the address data from the payload
+    const payload = ctx.payload?.payload || ctx.payload;
+    const addressData = payload?.address || {
+      line1: payload?.line1 || payload?.street,
+      city: payload?.city,
+      state: payload?.state,
+      postalCode: payload?.postalCode || payload?.zipCode,
+      country: payload?.country || 'US'
+    };
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(ctx.payload),  // Make sure this matches the expected format
+      body: JSON.stringify({ address: addressData }),  // Ensure proper format
       signal: controller.signal
     });
 

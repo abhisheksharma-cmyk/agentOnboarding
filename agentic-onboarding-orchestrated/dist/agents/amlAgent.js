@@ -7,13 +7,14 @@ const httpHelper_1 = require("../utils/httpHelper");
  * AML / Fraud agent wrapper.
  */
 async function runAmlAgent(ctx) {
-    const config = (0, agentRegistry_1.getAgentConfig)("AML");
-    if (!config) {
+    const agentInfo = (0, agentRegistry_1.getAgentConfig)("AML");
+    if (!agentInfo) {
         throw new Error('No AML agent configuration found');
     }
+    const { agentId, config } = agentInfo;
     if (config.type === "http") {
         const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-        out.metadata = { ...(out.metadata || {}), agent_name: 'aml_verification', slot: "AML" };
+        out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "AML" };
         return out;
     }
     return {

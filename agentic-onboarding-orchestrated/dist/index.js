@@ -326,20 +326,38 @@ app.post('/chat/session/:id/confirm', (req, res, next) => {
     }
 });
 app.post('/onboarding/verify-address', async (req, res) => {
-    const { line1, city, state, postalCode, country } = req.body;
-    const result = await (0, addressAgent_1.runAddressAgent)({
-        customerId: 'temp-customer',
-        applicationId: 'temp-application',
-        slot: 'ADDRESS_VERIFICATION',
-        payload: {
-            line1,
-            city: city || '',
-            state: state || '',
-            postalCode: postalCode || '',
-            country: country || ''
-        }
-    });
-    res.json(result);
+    console.log('Received request:', req.body); // Keep this for debugging
+    const { address } = req.body; // Extract the address object directly
+    if (!address || !address.line1) {
+        return res.status(400).json({
+            error: 'Address is required with at least line1'
+        });
+    }
+    try {
+        const result = await (0, addressAgent_1.runAddressAgent)({
+            customerId: 'temp-customer',
+            applicationId: 'temp-application',
+            slot: 'ADDRESS_VERIFICATION',
+            payload: {
+                address: {
+                    line1: address.line1,
+                    city: address.city || '',
+                    state: address.state || '',
+                    postalCode: address.postalCode || '',
+                    country: address.country || 'US'
+                }
+            }
+        });
+        res.json(result);
+    }
+    catch (error) {
+        console.error('Error in address verification:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        res.status(500).json({
+            error: 'Failed to verify address',
+            details: errorMessage
+        });
+    }
 });
 /**
  * Start a full onboarding run.

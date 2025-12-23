@@ -8,13 +8,14 @@ const httpHelper_1 = require("../utils/httpHelper");
  * In production, this might call an external KYC LLM agent or vendor adapter.
  */
 async function runKycAgent(ctx) {
-    const config = (0, agentRegistry_1.getAgentConfig)("KYC");
-    if (!config) {
+    const agentInfo = (0, agentRegistry_1.getAgentConfig)("KYC");
+    if (!agentInfo) {
         throw new Error('No KYC agent configuration found');
     }
+    const { agentId, config } = agentInfo;
     if (config.type === "http") {
         const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-        out.metadata = { ...(out.metadata || {}), agent_name: 'KYC', slot: "KYC" };
+        out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
         return out;
     }
     // Fallback local behavior

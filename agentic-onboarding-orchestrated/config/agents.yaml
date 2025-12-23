@@ -4,8 +4,8 @@ agents:
     versions:
       address_v1:
         type: http
-        endpoint: http://localhost:5000/api/v1/verify
-        timeout_ms: 10000
+        endpoint: http://localhost:5000/onboarding/verify-address
+        timeout_ms: 20000
         enabled: true
         documentation: http://localhost:5000/api-docs/
   KYC:

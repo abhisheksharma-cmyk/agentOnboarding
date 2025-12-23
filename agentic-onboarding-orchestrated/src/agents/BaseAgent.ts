@@ -1,14 +1,16 @@
 import { llmConfig } from '../config/llmConfig';
 
-export type AgentResponse = {
+export interface AgentResponse {
     status: 'success' | 'error';
     message: string;
     data?: {
         nextAction?: string;
         [key: string]: any;
     };
+    nextAction?: string;
     suggestions?: string[];
     actions?: string[];
+    error?: any;
 };
 
 export type UserInput = {
@@ -17,9 +19,10 @@ export type UserInput = {
 };
 
 export type AgentContext = {
-    sessionId: string;
+    sessionId?: string;
     userData?: any;
     [key: string]: any;
+
 };
 
 export abstract class BaseAgent {
@@ -38,7 +41,7 @@ export abstract class BaseAgent {
         return {
             status: 'error',
             message,
-            data: error
+            error: error?.message || error
         };
     }
 }
