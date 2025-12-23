@@ -193,26 +193,48 @@ function extractAddressFromContext(context) {
  * @param requestId Request ID for tracking
  * @returns Formatted agent output
  */
+// In agentic-onboarding-orchestrated/src/agents/addressAgent.ts
 function mapAddressVerificationResponse(response, agentId, slot, requestId) {
     const data = response.data || response;
-    const isVerified = data.verificationStatus === 'valid' || data.standardized === true;
+    // Handle both the mock response format and the actual service response format
+    const isVerified = data.verified === true ||
+        data.verificationStatus === 'valid' ||
+        data.standardized === true;
+    // Extract confidence score with a default
+    const confidence = data.confidence ||
+        (data.flags && data.flags.verification_score) ||
+        (isVerified ? 0.9 : 0.1);
+    // Extract reasons from different possible locations in the response
+    let reasons = [];
+    if (data.reasons && Array.isArray(data.reasons)) {
+        reasons = data.reasons;
+    }
+    else if (data.issues && Array.isArray(data.issues)) {
+        reasons = data.issues;
+    }
+    else if (data.message) {
+        reasons = [data.message];
+    }
+    else {
+        reasons = [isVerified ? 'Address verified successfully' : 'Address verification failed'];
+    }
     return {
         proposal: isVerified ? 'approve' : 'deny',
-        confidence: data.confidenceScore || (isVerified ? 0.9 : 0.1),
-        reasons: data.issues && data.issues.length > 0
-            ? data.issues
-            : [isVerified ? 'Address verified successfully' : 'Address verification failed'],
+        confidence: confidence,
+        reasons: reasons,
         policy_refs: ['ADDRESS_VERIFICATION_POLICY'],
         flags: {
             address_verified: isVerified,
-            verification_score: data.confidenceScore || (isVerified ? 0.9 : 0.1)
+            verification_score: confidence,
+            ...(data.flags || {})
         },
         metadata: {
             ...(data.metadata || {}),
             agent_name: agentId,
             slot,
             request_id: requestId,
-            verification_timestamp: new Date().toISOString()
+            verification_timestamp: new Date().toISOString(),
+            verificationMethod: (data.metadata && data.metadata.verificationMethod) || 'standard'
         }
     };
 }

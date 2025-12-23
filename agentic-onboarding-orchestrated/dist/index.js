@@ -326,14 +326,16 @@ app.post('/chat/session/:id/confirm', (req, res, next) => {
     }
 });
 app.post('/onboarding/verify-address', async (req, res) => {
-    console.log('Received request:', req.body); // Keep this for debugging
-    const { address } = req.body; // Extract the address object directly
+    console.log('Received address verification request:', JSON.stringify(req.body, null, 2));
+    const { address } = req.body;
     if (!address || !address.line1) {
+        console.log('Invalid request: Missing address or address.line1');
         return res.status(400).json({
             error: 'Address is required with at least line1'
         });
     }
     try {
+        console.log('Processing address verification for:', address);
         const result = await (0, addressAgent_1.runAddressAgent)({
             customerId: 'temp-customer',
             applicationId: 'temp-application',
@@ -348,6 +350,7 @@ app.post('/onboarding/verify-address', async (req, res) => {
                 }
             }
         });
+        console.log('Address verification result:', result);
         res.json(result);
     }
     catch (error) {
