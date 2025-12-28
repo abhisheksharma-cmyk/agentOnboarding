@@ -386,11 +386,18 @@ app.post('/onboarding/verify-address', async (req, res) => {
  */
 app.post("/onboarding/start", async (req, res) => {
     const traceId = generateTraceId();
+    // Extract document type from payload if available
+    const documentType = req.body.documentType || req.body.payload?.documentType || null;
     const ctx = {
         customerId: req.body.customerId || "cus_demo",
         applicationId: req.body.applicationId || "ca_demo",
         slot: "KYC",
-        payload: req.body.payload || {},
+        payload: {
+            ...(req.body.payload || {}),
+            documentType: documentType, // Ensure documentType is in payload
+            documents: req.body.payload?.documents || [],
+            applicant: req.body.payload?.applicant || {}
+        },
     };
     (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
     // Simple wait-loop for demo (not for production)
@@ -412,10 +419,13 @@ app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
     const result = runResults[traceId] || null;
     const auditTrail = (0, audit_1.getTrace)(traceId);
+    // Extract final decision from result for easier access
+    const finalDecision = result?.final || result?.data?.final || null;
     res.json({
         traceId,
         status: result ? "completed" : "pending",
         result,
+        finalDecision, // Add finalDecision at top level for easier access
         auditTrail,
     });
 });

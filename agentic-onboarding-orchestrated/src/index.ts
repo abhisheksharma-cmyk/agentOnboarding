@@ -414,11 +414,19 @@ app.post('/onboarding/verify-address', async (req, res) => {
 app.post("/onboarding/start", async (req, res) => {
   const traceId = generateTraceId();
 
+  // Extract document type from payload if available
+  const documentType = req.body.documentType || req.body.payload?.documentType || null;
+  
   const ctx: AgentContext = {
     customerId: req.body.customerId || "cus_demo",
     applicationId: req.body.applicationId || "ca_demo",
     slot: "KYC",
-    payload: req.body.payload || {},
+    payload: {
+      ...(req.body.payload || {}),
+      documentType: documentType, // Ensure documentType is in payload
+      documents: req.body.payload?.documents || [],
+      applicant: req.body.payload?.applicant || {}
+    },
   };
 
   startOnboarding(ctx, traceId);

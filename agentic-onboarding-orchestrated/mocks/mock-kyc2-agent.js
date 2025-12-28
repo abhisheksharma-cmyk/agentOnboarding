@@ -235,9 +235,11 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   const payload = req.body?.input?.context?.payload || {};
   const applicant = payload.applicant || {};
   const documents = payload.documents || payload.docs || [];
+  const documentType = payload.documentType || documents[0]?.type || 'unknown';
 
   console.log("[KYC2] Extracted - applicant:", applicant);
   console.log("[KYC2] Extracted - documents count:", documents.length);
+  console.log("[KYC2] Document type:", documentType);
   
   console.log("[KYC2] Calling Groq extraction...");
   const groqOut = await runGroqExtraction(applicant, documents);
@@ -246,13 +248,122 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   const extractedDocs = groqOut?.documents || [];
   const mergedDocs = documents.map((doc, idx) => {
     const extracted = extractedDocs.find((d) => d.index === idx) || extractedDocs[idx] || {};
-    return { ...doc, ...extracted };
+    return { 
+      ...doc, 
+      ...extracted,
+      type: extracted.type || doc.type || documentType // Ensure type is set
+    };
   });
 
+  // Validate each document based on its type
+  const validationResults = mergedDocs.map((doc) => {
+    const docType = normalize(doc.type || documentType);
+    let validation = {
+      isValid: true,
+      errors: [],
+      confidence: 0.5
+    };
+
+    // Apply type-specific validation
+    if (docType.includes('passport')) {
+      if (!doc.number || !/^[A-Z0-9]{8,9}$/i.test(doc.number)) {
+        validation.errors.push('Invalid passport number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+      if (!doc.expiryDate) validation.errors.push('Expiry date is required');
+      if (doc.expiryDate && new Date(doc.expiryDate) < new Date()) {
+        validation.errors.push('Passport has expired');
+        validation.isValid = false;
+      }
+    } else if (docType.includes('driver') || docType.includes('license')) {
+      if (!doc.number || !/^[A-Z0-9]{8,16}$/i.test(doc.number)) {
+        validation.errors.push('Invalid driver\'s license number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+    } else if (docType.includes('aadhaar') || docType.includes('adhar') || docType === 'uid') {
+      if (!doc.number || !/^\d{12}$/.test(doc.number)) {
+        validation.errors.push('Aadhaar number must be exactly 12 digits');
+        validation.isValid = false;
+      } else if (!aadhaarLooksValid(doc.number)) {
+        validation.errors.push('Invalid Aadhaar number checksum');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+    } else if (docType.includes('utility')) {
+      if (!doc.address || doc.address.length < 10) {
+        validation.errors.push('Address is required and must be complete');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Account holder name is required');
+      if (!doc.issueDate) validation.errors.push('Bill date is required');
+      if (doc.issueDate && new Date(doc.issueDate) < new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)) {
+        validation.errors.push('Utility bill is older than 3 months');
+        validation.isValid = false;
+      }
+    } else if (docType.includes('bank') || docType.includes('statement')) {
+      if (!doc.number || !/^[0-9]{8,18}$/.test(doc.number)) {
+        validation.errors.push('Invalid bank account number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Account holder name is required');
+      if (!doc.address || doc.address.length < 10) {
+        validation.errors.push('Address is required and must be complete');
+        validation.isValid = false;
+      }
+      if (!doc.issueDate) validation.errors.push('Statement date is required');
+      if (doc.issueDate && new Date(doc.issueDate) < new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)) {
+        validation.errors.push('Bank statement is older than 3 months');
+        validation.isValid = false;
+      }
+    }
+
+    // Calculate confidence based on validation
+    const requiredFields = ['number', 'name'];
+    const presentFields = requiredFields.filter(f => doc[f]);
+    validation.confidence = presentFields.length / requiredFields.length;
+    if (doc.quality === 'high') validation.confidence += 0.2;
+    if (doc.looks_authentic === true) validation.confidence += 0.1;
+
+    return { ...doc, validation };
+  });
+
+  // Add validation errors to decision reasons
+  const allValidationErrors = validationResults.flatMap(r => r.validation?.errors || []);
+  const hasInvalidDocs = validationResults.some(r => !r.validation?.isValid);
+
   const decision = buildDecision({ applicant, documents: mergedDocs });
+  
+  // Add validation-specific reasons
+  if (allValidationErrors.length > 0) {
+    decision.reasons = [...allValidationErrors, ...decision.reasons];
+  }
+  
+  if (hasInvalidDocs) {
+    decision.proposal = 'escalate';
+    decision.confidence = Math.min(decision.confidence, 0.5);
+    decision.flags.missing_data = true;
+  }
+  
   if (groqOut?.summary_reasons?.length) {
     decision.reasons = [...groqOut.summary_reasons, ...decision.reasons];
   }
+  
+  // Add validation metadata
+  decision.metadata = {
+    ...decision.metadata,
+    documentType: documentType,
+    validationResults: validationResults.map(r => ({
+      type: r.type,
+      isValid: r.validation?.isValid,
+      confidence: r.validation?.confidence,
+      errors: r.validation?.errors
+    }))
+  };
   
   console.log("[KYC2] Final decision:", JSON.stringify(decision, null, 2));
   res.json(decision);
