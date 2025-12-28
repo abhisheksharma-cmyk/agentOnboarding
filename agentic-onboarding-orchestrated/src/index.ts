@@ -443,10 +443,15 @@ app.get("/onboarding/trace/:traceId", (req, res) => {
   const traceId = req.params.traceId;
   const result = runResults[traceId] || null;
   const auditTrail = getTrace(traceId);
+  
+  // Extract final decision from result for easier access
+  const finalDecision = result?.final || result?.data?.final || null;
+  
   res.json({
     traceId,
     status: result ? "completed" : "pending",
     result,
+    finalDecision, // Add finalDecision at top level for easier access
     auditTrail,
   });
 });

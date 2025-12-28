@@ -70,7 +70,10 @@ export function initOrchestrator() {
   eventBus.subscribe("onboarding.started", async ({ data, traceId }) => {
     try {
       const ctx: AgentContext = data;
-      const stateMachine = createStateMachine(ctx, MAX_RETRIES);
+      let stateMachine = createStateMachine(ctx, MAX_RETRIES);
+      
+      // Transition from INITIALIZED to KYC_STARTED
+      stateMachine = transitionState(stateMachine, 'START', {});
       stateMachines.set(traceId, stateMachine);
 
       audit(traceId, "onboarding.started", { ctx });
@@ -82,7 +85,8 @@ export function initOrchestrator() {
       console.error(`[${traceId}] Error in onboarding.started:`, error);
       eventBus.publish("onboarding.error", {
         error: error instanceof Error ? error.message : 'Unknown error',
-        traceId
+        traceId,
+        step: 'START'
       }, traceId);
     }
   });
@@ -96,8 +100,16 @@ export function initOrchestrator() {
 
     try {
       const ctx: AgentContext = data;
-      audit(traceId, "kyc.invoked", { ctx });
-      logStateTransition(traceId, 'KYC_STARTED', 'KYC_COMPLETED', 'KYC_APPROVED');
+      audit(traceId, "kyc.invoked", { ctx, stateMachine });
+
+      // State machine should already be in KYC_STARTED from onboarding.started
+      // But handle edge case where it might not be
+      let currentMachine = stateMachine;
+      if (currentMachine.currentState === 'INITIALIZED') {
+        currentMachine = transitionState(currentMachine, 'START', {});
+        stateMachines.set(traceId, currentMachine);
+        logStateTransition(traceId, 'INITIALIZED', 'KYC_STARTED', 'START');
+      }
 
       const response = await withRetry(
         () => runKycAgent(ctx),
@@ -115,7 +127,7 @@ export function initOrchestrator() {
         flags: response.flags || {}
       };
 
-      const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
+      const durationMs = Date.now() - new Date(currentMachine.history[currentMachine.history.length - 1].timestamp).getTime();
       const final = evaluateDecision(agentOutput);
 
       audit(traceId, "kyc.completed", {
@@ -124,37 +136,53 @@ export function initOrchestrator() {
         durationMs
       });
 
-      // Update state machine
-      const event: OnboardingEvent = final === "APPROVE" ? 'KYC_APPROVED' : 'KYC_REJECTED';
-      const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
-      stateMachines.set(traceId, updatedMachine);
-
-      eventBus.publish("onboarding.kyc_complete", {
-        agentOutput,
-        final,
-        ctx,
-        durationMs
-      }, traceId);
-
-      // Trigger next step based on KYC result
+      // Update state machine based on decision
+      let updatedMachine: OnboardingStateMachine;
       if (final === "APPROVE") {
+        // Transition from KYC_STARTED to KYC_COMPLETED
+        updatedMachine = transitionState(currentMachine, 'KYC_APPROVED', { agentOutput, durationMs });
+        logStateTransition(traceId, currentMachine.currentState, updatedMachine.currentState, 'KYC_APPROVED');
+        stateMachines.set(traceId, updatedMachine);
+        
+        eventBus.publish("onboarding.kyc_complete", {
+          agentOutput,
+          final,
+          ctx,
+          durationMs
+        }, traceId);
+
+        // Move to next step
         logStateTransition(traceId, 'KYC_COMPLETED', 'ADDRESS_VERIFICATION_STARTED', 'START');
         eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine: updatedMachine }, traceId);
       } else {
-        logStateTransition(traceId, 'KYC_COMPLETED', 'COMPLETED', 'KYC_REJECTED');
+        // For ESCALATE or DENY, transition from KYC_STARTED to COMPLETED
+        updatedMachine = transitionState(currentMachine, 'KYC_REJECTED', { agentOutput, durationMs });
+        logStateTransition(traceId, currentMachine.currentState, updatedMachine.currentState, 'KYC_REJECTED');
+        stateMachines.set(traceId, updatedMachine);
+        
+        eventBus.publish("onboarding.kyc_complete", {
+          agentOutput,
+          final,
+          ctx,
+          durationMs
+        }, traceId);
+
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
       console.error(`[${traceId}] Error in KYC process:`, error);
+      // Get the latest state machine before handling error
+      const latestMachine = stateMachines.get(traceId);
       eventBus.publish("onboarding.error", {
         error: error instanceof Error ? error.message : 'KYC processing failed',
         traceId,
-        step: 'KYC'
+        step: 'KYC',
+        currentState: latestMachine?.currentState
       }, traceId);
     }
   });
 
-  eventBus.subscribe("onboarding.kyc_complete", async ({ data, traceId }) => {
+  eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
     const stateMachine = stateMachines.get(traceId);
     if (!stateMachine) {
       console.error(`[${traceId}] No state machine found for traceId`);
@@ -162,56 +190,38 @@ export function initOrchestrator() {
     }
 
     try {
-      const { agentOutput, ctx } = data;
-
-      if (agentOutput.proposal === 'approve') {
-        logStateTransition(traceId, 'KYC_COMPLETED', 'ADDRESS_VERIFICATION_STARTED', 'START');
-        eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine }, traceId);
+      const ctx: AgentContext = data;
+      audit(traceId, "address_verification.invoked", { ctx });
+      const start = Date.now();
+      const agentOutput = await runAddressAgent(ctx);
+      const durationMs = Date.now() - start;
+      const final = evaluateDecision(agentOutput);
+      audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
+      
+      // Update state machine
+      const event: OnboardingEvent = final === "APPROVE" ? 'ADDRESS_VERIFIED' : 'ADDRESS_REJECTED';
+      const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
+      stateMachines.set(traceId, updatedMachine);
+      
+      logStateTransition(traceId, stateMachine.currentState, updatedMachine.currentState, event);
+      
+      eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
+      
+      if (final === "APPROVE") {
+        logStateTransition(traceId, 'ADDRESS_VERIFICATION_COMPLETED', 'AML_STARTED', 'START');
+        eventBus.publish("onboarding.aml", { ...ctx, stateMachine: updatedMachine }, traceId);
       } else {
-        logStateTransition(traceId, 'KYC_COMPLETED', 'COMPLETED', 'KYC_REJECTED');
-        eventBus.publish("onboarding.finished", {
-          final: 'DENY',
-          agentOutput
-        }, traceId);
+        eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
-      console.error(`[${traceId}] Error in KYC complete handler:`, error);
+      console.error(`[${traceId}] Error in address verification:`, error);
+      const latestMachine = stateMachines.get(traceId);
       eventBus.publish("onboarding.error", {
-        error: error instanceof Error ? error.message : 'Error in KYC complete handler',
+        error: error instanceof Error ? error.message : 'Address verification failed',
         traceId,
-        step: 'KYC_COMPLETE'
+        step: 'ADDRESS_VERIFICATION',
+        currentState: latestMachine?.currentState
       }, traceId);
-    }
-  });
-  eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
-    const ctx: AgentContext = data;
-    audit(traceId, "address_verification.invoked", { ctx });
-    const start = Date.now();
-    const agentOutput = await runAddressAgent(ctx);
-    const durationMs = Date.now() - start;
-    const final = evaluateDecision(agentOutput);
-    audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
-    eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
-    if (final === "APPROVE") {
-      eventBus.publish("onboarding.aml", ctx, traceId);
-    } else {
-      eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
-    }
-  });
-
-  eventBus.subscribe("onboarding.address_verification", async ({ data, traceId }) => {
-    const ctx: AgentContext = data;
-    audit(traceId, "address_verification.invoked", { ctx });
-    const start = Date.now();
-    const agentOutput = await runAddressAgent(ctx);
-    const durationMs = Date.now() - start;
-    const final = evaluateDecision(agentOutput);
-    audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
-    eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
-    if (final === "APPROVE") {
-      eventBus.publish("onboarding.aml", ctx, traceId);
-    } else {
-      eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
     }
   });
 
@@ -400,26 +410,35 @@ export function initOrchestrator() {
   });
 
   eventBus.subscribe("onboarding.error", ({ data, traceId }) => {
-    const { error, step } = data;  // Destructure from data instead
+    const { error, step, currentState } = data;
     console.error(`[${traceId}] Error in step ${step || 'unknown'}:`, error);
+    
+    // Get the latest state machine
     const stateMachine = stateMachines.get(traceId);
     if (stateMachine) {
-      // Create a failed state based on the current state
-      const failedState = stateMachine.currentState.endsWith('_STARTED')
-        ? stateMachine.currentState.replace('_STARTED', '_FAILED') as OnboardingState
-        : stateMachine.currentState.endsWith('_COMPLETED')
-          ? stateMachine.currentState.replace('_COMPLETED', '_FAILED') as OnboardingState
-          : `${stateMachine.currentState}_FAILED` as OnboardingState;
+      const actualState = currentState || stateMachine.currentState;
+      
+      // Only log transition if we're in a valid state
+      // Don't try to transition invalid states - just log and clean up
+      if (actualState !== 'INITIALIZED' || step !== 'KYC') {
+        // Create a failed state based on the current state
+        const failedState = actualState.endsWith('_STARTED')
+          ? actualState.replace('_STARTED', '_FAILED') as OnboardingState
+          : actualState.endsWith('_COMPLETED')
+            ? actualState.replace('_COMPLETED', '_FAILED') as OnboardingState
+            : `${actualState}_FAILED` as OnboardingState;
 
-      // Use a type assertion for the error event
-      logStateTransition(traceId, stateMachine.currentState, failedState, 'COMPLETE' as OnboardingEvent, {
-        error: error instanceof Error ? error.message : String(error),
-        step,
-        status: 'error'
-      });
-      // Update the state machine's current state before cleaning up
-      stateMachine.currentState = failedState;
-      // Optionally clean up the state machine on error
+        logStateTransition(traceId, actualState, failedState, 'COMPLETE' as OnboardingEvent, {
+          error: error instanceof Error ? error.message : String(error),
+          step,
+          status: 'error'
+        });
+      } else {
+        // For INITIALIZED state errors, just log without invalid transition
+        console.error(`[${traceId}] Error occurred in ${actualState} state, cannot transition. Cleaning up.`);
+      }
+      
+      // Clean up the state machine on error
       stateMachines.delete(traceId);
     }
   });

@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",
     "mock:address": "node mocks/mock-address-agent.js",
+    "mock:kyc2": "node mocks/mock-kyc2-agent.js",
+    "mock:aml2": "node mocks/mock-aml2-agent.js",
+    "mock:credit2": "node mocks/mock-credit2-agent.js",
     "build": "tsc",
     "start": "ts-node src/index.ts"
   },

@@ -11,15 +11,15 @@ exports.getActiveAgents = getActiveAgents;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const js_yaml_1 = __importDefault(require("js-yaml"));
-const agentConfigs = {
-    KYC: {
-        agentId: 'kyc-verification', // Add a unique identifier for this agent
-        type: 'http',
-        endpoint: '/api/kyc',
-        timeout_ms: 30000,
-        enabled: true
-    }
-};
+// const agentConfigs: Record<string, AgentConfig> = {
+//   KYC: {
+//     agentId: 'kyc-verification',  // Add a unique identifier for this agent
+//     type: 'http',
+//     endpoint: '/api/kyc',
+//     timeout_ms: 30000,
+//     enabled: true
+//   }
+// };
 function getAgentConfig(slot, version) {
     if (!agentsConfig) {
         loadAgentsConfig();

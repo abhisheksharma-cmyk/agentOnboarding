@@ -1,35 +1,31 @@
 require("dotenv").config();
 const express = require("express");
-const { callGroq } = require("../groq/groqClient");
+// const { callGroq } = require("../groq/groqClient");
 const app = express();
 app.use(express.json());
 
 let creditContractJson = null;
 
 async function loadCreditContract() {
-  console.log("Loading Credit agent JSON contract from Groq...");
+  console.log("Loading Credit agent JSON contract...");
 
-  const systemPrompt = `
-You are a credit underwriting agent. Provide ONLY valid JSON in the schema:
+  // Dummy response for testing without Groq API key
+  creditContractJson = {
+    "proposal": "approve",
+    "confidence": 0.78,
+    "reasons": ["Credit score within acceptable range", "Income sufficient for loan amount"],
+    "policy_refs": ["CREDIT-POL-001", "CREDIT-POL-002"],
+    "flags": {
+      "missing_data": false,
+      "contradictory_signals": false
+    },
+    "metadata": {
+      "agent_name": "mock_credit_http",
+      "slot": "CREDIT",
+      "version": "1.0.0"
+    }
+  };
 
-{
-  "proposal": "approve | deny | escalate",
-  "confidence": number,
-  "reasons": [string],
-  "policy_refs": [string],
-  "flags": {
-    "missing_data": boolean,
-    "contradictory_signals": boolean
-  },
-  "metadata": {
-    "agent_name": "mock_credit_http",
-    "slot": "CREDIT",
-    "version": "1.0.0"
-  }
-}
-`;
-
-  creditContractJson = await callGroq(systemPrompt);
   console.log("Loaded Credit JSON:", creditContractJson);
 }
 

@@ -62,6 +62,9 @@ function aadhaarLooksValid(num) {
 }
 
 async function runGroqExtraction(applicant, documents) {
+  console.log("[Groq] Starting extraction for applicant:", applicant);
+  console.log("[Groq] Documents to process:", documents.length);
+  
   const payload = { applicant, documents };
   const systemPrompt = `You are a KYC document extraction agent. Given applicant info and an array of documents (may include text, base64, or fields), extract key identity fields. Return ONLY valid JSON.
 Input JSON: ${JSON.stringify(payload)}
@@ -84,11 +87,14 @@ Schema:
 }
 If unknown, return "" for strings and [] for arrays.`;
   try {
+    console.log("[Groq] Calling callGroq with system prompt (length:", systemPrompt.length, ")");
     const out = await callGroq(systemPrompt);
+    console.log("[Groq] Successfully received response from Groq");
     return out;
   } catch (err) {
-    console.error("Groq extraction failed", err);
-    return { documents: [], summary_reasons: ["Groq extraction failed"] };
+    console.error("[Groq] Extraction failed:", err.message);
+    console.error("[Groq] Error details:", err);
+    return { documents: [], summary_reasons: ["Groq extraction failed: " + err.message] };
   }
 }
 
@@ -223,11 +229,20 @@ function buildDecision({ applicant, documents }) {
 }
 
 app.post("/agents/kyc2/decide", async (req, res) => {
+  console.log("[KYC2] Received request at /agents/kyc2/decide");
+  console.log("[KYC2] Request body:", JSON.stringify(req.body, null, 2));
+  
   const payload = req.body?.input?.context?.payload || {};
   const applicant = payload.applicant || {};
   const documents = payload.documents || payload.docs || [];
 
+  console.log("[KYC2] Extracted - applicant:", applicant);
+  console.log("[KYC2] Extracted - documents count:", documents.length);
+  
+  console.log("[KYC2] Calling Groq extraction...");
   const groqOut = await runGroqExtraction(applicant, documents);
+  console.log("[KYC2] Groq extraction result:", JSON.stringify(groqOut, null, 2));
+  
   const extractedDocs = groqOut?.documents || [];
   const mergedDocs = documents.map((doc, idx) => {
     const extracted = extractedDocs.find((d) => d.index === idx) || extractedDocs[idx] || {};
@@ -238,6 +253,8 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   if (groqOut?.summary_reasons?.length) {
     decision.reasons = [...groqOut.summary_reasons, ...decision.reasons];
   }
+  
+  console.log("[KYC2] Final decision:", JSON.stringify(decision, null, 2));
   res.json(decision);
 });
 
