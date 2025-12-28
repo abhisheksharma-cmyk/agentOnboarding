@@ -21,9 +21,23 @@ export interface AgentResponse {
     nextAction?: string;
     suggestions?: string[];
     actions?: string[];
+    // Additional properties for KYC agent
+    proposal?: 'approve' | 'deny' | 'escalate';
+    confidence?: number;
+    reasons?: string[];
+    policy_refs?: string[];
+    flags?: Record<string, boolean>;
+    metadata?: Record<string, any>;
 }
 
 export interface Agent {
+    name: string;
+    description?: string;
+    endpoints?: Array<{
+        method: 'get' | 'post' | 'put' | 'delete' | 'patch';
+        path: string;
+        handler: Function | Function[];
+    }>;
     handle(input: UserInput, context: AgentContext): Promise<AgentResponse>;
-    setNextAgent(agent: Agent): void;
+    setNextAgent?(agent: Agent): void;
 }

@@ -60,7 +60,25 @@ app.use((0, cors_1.default)({
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+// Middleware
 app.use(express_1.default.json());
+app.use(express_1.default.urlencoded({ extended: true }));
+const UPLOADS_DIR = path_1.default.join(process.cwd(), 'uploads');
+if (!fs_1.default.existsSync(UPLOADS_DIR)) {
+    fs_1.default.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+// Register agent endpoints
+if (kycAgent_1.kycAgent && 'endpoints' in kycAgent_1.kycAgent && Array.isArray(kycAgent_1.kycAgent.endpoints)) {
+    kycAgent_1.kycAgent.endpoints.forEach((endpoint) => {
+        const method = endpoint.method.toLowerCase();
+        if (['get', 'post', 'put', 'delete', 'patch'].includes(method)) {
+            const handlers = Array.isArray(endpoint.handler)
+                ? endpoint.handler
+                : [endpoint.handler];
+            app[method](endpoint.path, ...handlers);
+        }
+    });
+}
 const chatSessions = new Map();
 function requireSession(sessionId) {
     const session = chatSessions.get(sessionId);
@@ -412,8 +430,17 @@ app.post("/test/kyc", async (req, res) => {
         payload: req.body.payload || {},
     };
     const out = await (0, kycAgent_1.runKycAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    // Ensure the proposal is always defined
+    const agentOutput = {
+        ...out,
+        proposal: out.proposal || 'escalate', // Default to 'escalate' if undefined
+        confidence: out.confidence || 0,
+        reasons: out.reasons || [],
+        policy_refs: out.policy_refs || [],
+        flags: out.flags || {}
+    };
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    res.json({ agentOutput, finalDecision });
 });
 app.post("/test/aml", async (req, res) => {
     const ctx = {
@@ -423,8 +450,17 @@ app.post("/test/aml", async (req, res) => {
         payload: req.body.payload || {},
     };
     const out = await (0, amlAgent_1.runAmlAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    // Ensure the proposal is always defined
+    const agentOutput = {
+        ...out,
+        proposal: out.proposal || 'escalate', // Default to 'escalate' if undefined
+        confidence: out.confidence || 0,
+        reasons: out.reasons || [],
+        policy_refs: out.policy_refs || [],
+        flags: out.flags || {}
+    };
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    res.json({ agentOutput, finalDecision });
 });
 app.post("/test/credit", async (req, res) => {
     const ctx = {
@@ -434,8 +470,17 @@ app.post("/test/credit", async (req, res) => {
         payload: req.body.payload || {},
     };
     const out = await (0, creditAgent_1.runCreditAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    // Ensure the proposal is always defined
+    const agentOutput = {
+        ...out,
+        proposal: out.proposal || 'escalate', // Default to 'escalate' if undefined
+        confidence: out.confidence || 0,
+        reasons: out.reasons || [],
+        policy_refs: out.policy_refs || [],
+        flags: out.flags || {}
+    };
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    res.json({ agentOutput, finalDecision });
 });
 app.post("/test/risk", async (req, res) => {
     const ctx = {
@@ -445,18 +490,28 @@ app.post("/test/risk", async (req, res) => {
         payload: req.body.payload || {},
     };
     const out = await (0, riskAgent_1.runRiskAgent)(ctx);
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(out);
-    res.json({ agentOutput: out, finalDecision });
+    // Ensure the proposal is always defined
+    const agentOutput = {
+        ...out,
+        proposal: out.proposal || 'escalate', // Default to 'escalate' if undefined
+        confidence: out.confidence || 0,
+        reasons: out.reasons || [],
+        policy_refs: out.policy_refs || [],
+        flags: out.flags || {}
+    };
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    res.json({ agentOutput, finalDecision });
 });
-app.use((err, _req, res, _next) => {
-    const status = typeof err?.status === 'number' ? err.status : 500;
-    const message = typeof err?.message === 'string' ? err.message : 'Internal server error';
-    res.status(status).json({
-        error: message
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
-const port = process.env.PORT || 4000;
-app.listen(port, () => {
-    // eslint-disable-next-line no-console
-    console.log(`Server listening on http://localhost:${port}`);
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });

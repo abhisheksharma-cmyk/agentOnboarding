@@ -99,28 +99,38 @@ export function initOrchestrator() {
       audit(traceId, "kyc.invoked", { ctx });
       logStateTransition(traceId, 'KYC_STARTED', 'KYC_COMPLETED', 'KYC_APPROVED');
 
-      const out = await withRetry(
+      const response = await withRetry(
         () => runKycAgent(ctx),
         'KYC_VERIFICATION',
         traceId
       );
 
+      // Convert AgentResponse to AgentOutput
+      const agentOutput = {
+        ...response,
+        proposal: response.proposal || 'escalate',
+        confidence: response.confidence || 0,
+        reasons: response.reasons || [],
+        policy_refs: response.policy_refs || [],
+        flags: response.flags || {}
+      };
+
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(out);
+      const final = evaluateDecision(agentOutput);
 
       audit(traceId, "kyc.completed", {
-        agentOutput: out,
+        agentOutput,
         finalDecision: final,
         durationMs
       });
 
       // Update state machine
       const event: OnboardingEvent = final === "APPROVE" ? 'KYC_APPROVED' : 'KYC_REJECTED';
-      const updatedMachine = transitionState(stateMachine, event, { out, durationMs });
+      const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
 
       eventBus.publish("onboarding.kyc_complete", {
-        out,
+        agentOutput,
         final,
         ctx,
         durationMs
@@ -132,7 +142,7 @@ export function initOrchestrator() {
         eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine: updatedMachine }, traceId);
       } else {
         logStateTransition(traceId, 'KYC_COMPLETED', 'COMPLETED', 'KYC_REJECTED');
-        eventBus.publish("onboarding.finished", { final, out }, traceId);
+        eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
       console.error(`[${traceId}] Error in KYC process:`, error);
@@ -152,16 +162,16 @@ export function initOrchestrator() {
     }
 
     try {
-      const { out: kycResult, ctx } = data;
+      const { agentOutput, ctx } = data;
 
-      if (kycResult.proposal === 'approve') {
+      if (agentOutput.proposal === 'approve') {
         logStateTransition(traceId, 'KYC_COMPLETED', 'ADDRESS_VERIFICATION_STARTED', 'START');
         eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine }, traceId);
       } else {
         logStateTransition(traceId, 'KYC_COMPLETED', 'COMPLETED', 'KYC_REJECTED');
         eventBus.publish("onboarding.finished", {
           final: 'DENY',
-          out: kycResult
+          agentOutput
         }, traceId);
       }
     } catch (error) {
@@ -177,15 +187,15 @@ export function initOrchestrator() {
     const ctx: AgentContext = data;
     audit(traceId, "address_verification.invoked", { ctx });
     const start = Date.now();
-    const out = await runAddressAgent(ctx);
+    const agentOutput = await runAddressAgent(ctx);
     const durationMs = Date.now() - start;
-    const final = evaluateDecision(out);
-    audit(traceId, "address_verification.completed", { agentOutput: out, finalDecision: final, durationMs });
-    eventBus.publish("onboarding.address_verification_complete", { out, final, ctx, durationMs }, traceId);
+    const final = evaluateDecision(agentOutput);
+    audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
+    eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
     if (final === "APPROVE") {
       eventBus.publish("onboarding.aml", ctx, traceId);
     } else {
-      eventBus.publish("onboarding.finished", { final, out }, traceId);
+      eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
     }
   });
 
@@ -193,15 +203,15 @@ export function initOrchestrator() {
     const ctx: AgentContext = data;
     audit(traceId, "address_verification.invoked", { ctx });
     const start = Date.now();
-    const out = await runAddressAgent(ctx);
+    const agentOutput = await runAddressAgent(ctx);
     const durationMs = Date.now() - start;
-    const final = evaluateDecision(out);
-    audit(traceId, "address_verification.completed", { agentOutput: out, finalDecision: final, durationMs });
-    eventBus.publish("onboarding.address_verification_complete", { out, final, ctx, durationMs }, traceId);
+    const final = evaluateDecision(agentOutput);
+    audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
+    eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
     if (final === "APPROVE") {
       eventBus.publish("onboarding.aml", ctx, traceId);
     } else {
-      eventBus.publish("onboarding.finished", { final, out }, traceId);
+      eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
     }
   });
 
@@ -217,28 +227,28 @@ export function initOrchestrator() {
       audit(traceId, "aml.invoked", { ctx });
       logStateTransition(traceId, 'AML_STARTED', 'AML_COMPLETED', 'AML_APPROVED');
 
-      const out = await withRetry(
+      const agentOutput = await withRetry(
         () => runAmlAgent(ctx),
         'AML_VERIFICATION',
         traceId
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(out);
+      const final = evaluateDecision(agentOutput);
 
       audit(traceId, "aml.completed", {
-        agentOutput: out,
+        agentOutput,
         finalDecision: final,
         durationMs
       });
 
       // Update state machine
       const event: OnboardingEvent = final === "APPROVE" ? 'AML_APPROVED' : 'AML_REJECTED';
-      const updatedMachine = transitionState(stateMachine, event, { out, durationMs });
+      const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
 
       eventBus.publish("onboarding.aml_complete", {
-        out,
+        agentOutput,
         final,
         ctx,
         durationMs
@@ -250,7 +260,7 @@ export function initOrchestrator() {
         eventBus.publish("onboarding.credit", { ...ctx, stateMachine: updatedMachine }, traceId);
       } else {
         logStateTransition(traceId, 'AML_COMPLETED', 'COMPLETED', 'AML_REJECTED');
-        eventBus.publish("onboarding.finished", { final, out }, traceId);
+        eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
       console.error(`[${traceId}] Error in AML process:`, error);
@@ -274,28 +284,28 @@ export function initOrchestrator() {
       audit(traceId, "credit.invoked", { ctx });
       logStateTransition(traceId, 'CREDIT_STARTED', 'CREDIT_COMPLETED', 'CREDIT_APPROVED');
 
-      const out = await withRetry(
+      const agentOutput = await withRetry(
         () => runCreditAgent(ctx),
         'CREDIT_CHECK',
         traceId
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(out);
+      const final = evaluateDecision(agentOutput);
 
       audit(traceId, "credit.completed", {
-        agentOutput: out,
+        agentOutput,
         finalDecision: final,
         durationMs
       });
 
       // Update state machine
       const event: OnboardingEvent = final === "APPROVE" ? 'CREDIT_APPROVED' : 'CREDIT_REJECTED';
-      const updatedMachine = transitionState(stateMachine, event, { out, durationMs });
+      const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
 
       eventBus.publish("onboarding.credit_complete", {
-        out,
+        agentOutput,
         final,
         ctx,
         durationMs
@@ -307,7 +317,7 @@ export function initOrchestrator() {
         eventBus.publish("onboarding.risk", { ...ctx, stateMachine: updatedMachine }, traceId);
       } else {
         logStateTransition(traceId, 'CREDIT_COMPLETED', 'COMPLETED', 'CREDIT_REJECTED');
-        eventBus.publish("onboarding.finished", { final, out }, traceId);
+        eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
       console.error(`[${traceId}] Error in credit check:`, error);
@@ -331,28 +341,28 @@ export function initOrchestrator() {
       audit(traceId, "risk.invoked", { ctx });
       logStateTransition(traceId, 'RISK_STARTED', 'COMPLETED', 'COMPLETE');
 
-      const out = await withRetry(
+      const agentOutput = await withRetry(
         () => runRiskAgent(ctx),
         'RISK_ASSESSMENT',
         traceId
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(out);
+      const final = evaluateDecision(agentOutput);
 
       audit(traceId, "risk.completed", {
-        agentOutput: out,
+        agentOutput,
         finalDecision: final,
         durationMs
       });
 
       // Update state machine
-      const updatedMachine = transitionState(stateMachine, 'COMPLETE', { out, durationMs });
+      const updatedMachine = transitionState(stateMachine, 'COMPLETE', { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
 
       // Publish completion events
       eventBus.publish("onboarding.risk_complete", {
-        out,
+        agentOutput,
         final,
         ctx,
         durationMs
@@ -360,7 +370,7 @@ export function initOrchestrator() {
 
       eventBus.publish("onboarding.finished", {
         final,
-        out,
+        agentOutput,
         stateMachine: updatedMachine
       }, traceId);
     } catch (error) {
