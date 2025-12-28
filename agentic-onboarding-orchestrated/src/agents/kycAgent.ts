@@ -136,7 +136,15 @@ export async function runKycAgent(ctx: AgentContext): Promise<AgentResponse> {
   }
   const { agentId, config } = agentInfo;
   if (config.type === "http") {
-    const out = await callHttpAgent(config.endpoint, ctx, config.timeout_ms);
+    // Ensure documentType from context is passed in the payload
+    const kycContext = {
+      ...ctx,
+      payload: {
+        ...ctx.payload,
+        documentType: ctx.payload?.documentType || 'unknown' // Ensure documentType is present
+      }
+    };
+    const out = await callHttpAgent(config.endpoint, kycContext, config.timeout_ms);
     out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
     return out;
   }

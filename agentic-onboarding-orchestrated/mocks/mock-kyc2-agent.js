@@ -1,4 +1,6 @@
 require("dotenv").config();
+console.log("[KYC2 Startup] Checking GROQ_API_KEY environment variable. Has value: ", !!process.env.GROQ_API_KEY);
+console.log("[KYC2 Startup] Checking GROQ_MODEL environment variable. Has value: ", !!process.env.GROQ_MODEL);
 const express = require("express");
 const { callGroq } = require("../groq/groqClient");
 
