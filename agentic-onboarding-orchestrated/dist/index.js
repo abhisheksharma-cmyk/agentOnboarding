@@ -1,22 +1,22 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
     if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
+        desc = { enumerable: true, get: function () { return m[k]; } };
     }
     Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
+}) : (function (o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
     Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
+}) : function (o, v) {
     o["default"] = v;
 });
 var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
+    var ownKeys = function (o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
@@ -399,22 +399,33 @@ app.post("/onboarding/start", async (req, res) => {
             applicant: req.body.payload?.applicant || {}
         },
     };
-    (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
-    // Simple wait-loop for demo (not for production)
-    setTimeout(() => {
-        const result = runResults[traceId] || null;
-        const auditTrail = (0, audit_1.getTrace)(traceId);
-        res.json({
-            traceId,
-            status: result ? "completed" : "pending",
-            result,
-            auditTrail,
+}
+function sendError(res, err) {
+        // eslint-disable-next-line no-console
+        console.error("onboarding/start failed", err);
+        return res.status(500).json({
+            status: "error",
+            message: err?.message || "Unexpected error",
         });
-    }, 400);
-});
+    }
 /**
- * Fetch audit trail and result for a given traceId (idempotent/async-safe).
+ * Start a full onboarding run.
+ * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
+app.post("/onboarding/start", async (req, res) => {
+        try {
+            const traceId = generateTraceId();
+            const ctx = buildContext(req, "KYC");
+            (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
+            const { status, result } = await waitForResult(traceId);
+            const auditTrail = (0, audit_1.getTrace)(traceId);
+            return res.json({ traceId, status, result, auditTrail });
+        }
+        catch (err) {
+            return sendError(res, err);
+        }
+    });
+/** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
     const result = runResults[traceId] || null;
@@ -433,12 +444,7 @@ app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Reference" });
 });
 app.post("/test/kyc", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "KYC",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "KYC");
     const out = await (0, kycAgent_1.runKycAgent)(ctx);
     // Ensure the proposal is always defined
     const agentOutput = {
@@ -453,12 +459,7 @@ app.post("/test/kyc", async (req, res) => {
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/aml", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "AML",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "AML");
     const out = await (0, amlAgent_1.runAmlAgent)(ctx);
     // Ensure the proposal is always defined
     const agentOutput = {
@@ -473,12 +474,7 @@ app.post("/test/aml", async (req, res) => {
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/credit", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "CREDIT",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "CREDIT");
     const out = await (0, creditAgent_1.runCreditAgent)(ctx);
     // Ensure the proposal is always defined
     const agentOutput = {
@@ -493,12 +489,7 @@ app.post("/test/credit", async (req, res) => {
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/risk", async (req, res) => {
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "RISK",
-        payload: req.body.payload || {},
-    };
+    const ctx = buildContext(req, "RISK");
     const out = await (0, riskAgent_1.runRiskAgent)(ctx);
     // Ensure the proposal is always defined
     const agentOutput = {
@@ -525,3 +516,4 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+//# sourceMappingURL=index.js.map

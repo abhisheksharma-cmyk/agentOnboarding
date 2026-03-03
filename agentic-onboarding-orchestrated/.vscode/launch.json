@@ -33,7 +33,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "AgentOrchestrator",
+            "name": "TSAgentOrchestrator1",
             "skipFiles": [
                 "<node_internals>/**"
             ],

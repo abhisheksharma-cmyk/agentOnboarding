@@ -52,10 +52,7 @@ function normalizeDob(dob) {
   return (dob || "").replace(/[^0-9]/g, "").slice(0, 8);
 }
 
-function namesMatch(a, b) {
-  if (!a || !b) return false;
-  return normalize(a) === normalize(b);
-}
+const namesMatch = (a, b) => !!a && !!b && normalize(a) === normalize(b);
 
 function tokenizeName(name) {
   return normalize(name)
@@ -101,10 +98,18 @@ function aadhaarLooksValid(num) {
   return verhoeffCheck(num);
 }
 
+function buildApplicantFields(applicant) {
+  return {
+    name: applicant?.name || applicant?.fullName || "",
+    dob: applicant?.dob || applicant?.dateOfBirth || "",
+    gender: applicant?.gender || applicant?.sex || "",
+  };
+}
+
 async function runGroqExtraction(applicant, documents) {
   console.log("[Groq] Starting extraction for applicant:", applicant);
   console.log("[Groq] Documents to process:", documents.length);
-  
+
   const payload = { applicant, documents };
   const systemPrompt = `You are a KYC document extraction agent. Given applicant info and an array of documents (may include text, base64, or fields), extract key identity fields. Return ONLY valid JSON.
 Input JSON: ${JSON.stringify(payload)}
@@ -156,9 +161,7 @@ function evaluateDocument(doc, applicant, riskTolerance = "medium") {
     nameMatchType: "unknown",
   };
 
-  const applicantName = applicant?.name || applicant?.fullName || "";
-  const applicantDob = applicant?.dob || applicant?.dateOfBirth || "";
-  const applicantGender = applicant?.gender || applicant?.sex || "";
+  const applicantFields = buildApplicantFields(applicant);
 
   const nameMatchType = getNameMatchType(docName, applicantName);
   result.nameMatchType = nameMatchType;
@@ -244,6 +247,8 @@ function buildDecision({ applicant, documents }) {
   let missingData = false;
   let policyConflict = false;
   let contradictory = false;
+  let matchedFields = 0;
+  let consideredFields = 0;
 
   const docResults = documents.map((doc) => {
     const res = evaluateDocument(doc, applicant, riskTolerance);
@@ -251,6 +256,8 @@ function buildDecision({ applicant, documents }) {
     if (res.missingData) missingData = true;
     if (res.policyConflict) policyConflict = true;
     if (res.suspicious) contradictory = true;
+    matchedFields += res.matchedFields;
+    consideredFields += res.totalFields;
     reasons.push(...res.reasons);
     return res;
   });
@@ -304,7 +311,7 @@ function buildDecision({ applicant, documents }) {
 app.post("/agents/kyc2/decide", async (req, res) => {
   console.log("[KYC2] Received request at /agents/kyc2/decide");
   console.log("[KYC2] Request body:", JSON.stringify(req.body, null, 2));
-  
+
   const payload = req.body?.input?.context?.payload || {};
   const riskTolerance = normalize(payload?.risk_tolerance || payload?.riskTolerance || "medium");
   const applicant = {
@@ -317,16 +324,16 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   console.log("[KYC2] Extracted - applicant:", applicant);
   console.log("[KYC2] Extracted - documents count:", documents.length);
   console.log("[KYC2] Document type:", documentType);
-  
+
   console.log("[KYC2] Calling Groq extraction...");
   const groqOut = await runGroqExtraction(applicant, documents);
   console.log("[KYC2] Groq extraction result:", JSON.stringify(groqOut, null, 2));
-  
+
   const extractedDocs = groqOut?.documents || [];
   const mergedDocs = documents.map((doc, idx) => {
     const extracted = extractedDocs.find((d) => d.index === idx) || extractedDocs[idx] || {};
-    return { 
-      ...doc, 
+    return {
+      ...doc,
       ...extracted,
       type: extracted.type || doc.type || documentType // Ensure type is set
     };
@@ -414,22 +421,22 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   const hasInvalidDocs = validationResults.some(r => !r.validation?.isValid);
 
   const decision = buildDecision({ applicant, documents: mergedDocs });
-  
+
   // Add validation-specific reasons
   if (allValidationErrors.length > 0) {
     decision.reasons = [...allValidationErrors, ...decision.reasons];
   }
-  
+
   if (hasInvalidDocs && decision.proposal !== 'deny') {
     decision.proposal = 'escalate';
     decision.confidence = Math.min(decision.confidence, 0.5);
     decision.flags.missing_data = true;
   }
-  
+
   if (groqOut?.summary_reasons?.length) {
     decision.reasons = [...groqOut.summary_reasons, ...decision.reasons];
   }
-  
+
   // Add validation metadata
   decision.metadata = {
     ...decision.metadata,
@@ -442,7 +449,7 @@ app.post("/agents/kyc2/decide", async (req, res) => {
       errors: r.validation?.errors
     }))
   };
-  
+
   console.log("[KYC2] Final decision:", JSON.stringify(decision, null, 2));
   res.json(decision);
 });

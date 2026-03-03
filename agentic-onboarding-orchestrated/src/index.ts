@@ -224,9 +224,7 @@ const upload = multer({
   }
 });
 
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults: Record<string, any> = {};
 
 function generateTraceId(): string {
@@ -243,9 +241,7 @@ eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
   runResults[traceId] = data;
 });
 
-app.get("/", (_req, res) => {
-  res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
-});
+type WaitResult = { status: "completed" | "pending"; result: any };
 
 app.post('/chat/session/start', (_req, res) => {
   const id = crypto.randomUUID();
@@ -454,25 +450,37 @@ app.post("/onboarding/start", async (req, res) => {
       ...(normalizedAddress ? { address: normalizedAddress } : {})
     },
   };
+}
 
-  startOnboarding(ctx, traceId);
-
-  // Simple wait-loop for demo (not for production)
-  setTimeout(() => {
-    const result = runResults[traceId] || null;
-    const auditTrail = getTrace(traceId);
-    res.json({
-      traceId,
-      status: result ? "completed" : "pending",
-      result,
-      auditTrail,
+function sendError(res: express.Response, err: unknown) {
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+      status: "error",
+      message: (err as Error)?.message || "Unexpected error",
     });
-  }, 400);
-});
+  }
 
 /**
- * Fetch audit trail and result for a given traceId (idempotent/async-safe).
+ * Start a full onboarding run.
+ * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
+app.post("/onboarding/start", async (req, res) => {
+    try {
+      const traceId = generateTraceId();
+      const ctx = buildContext(req, "KYC");
+
+      startOnboarding(ctx, traceId);
+
+      const { status, result } = await waitForResult(traceId);
+      const auditTrail = getTrace(traceId);
+      return res.json({ traceId, status, result, auditTrail });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+/** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
   const traceId = req.params.traceId;
   const result = runResults[traceId] || null;
@@ -495,12 +503,7 @@ app.get("/", (_req, res) => {
 });
 
 app.post("/test/kyc", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "KYC",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "KYC");
   const out = await runKycAgent(ctx);
   // Ensure the proposal is always defined
   const agentOutput: AgentOutput = {
@@ -516,12 +519,7 @@ app.post("/test/kyc", async (req, res) => {
 });
 
 app.post("/test/aml", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "AML",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "AML");
   const out = await runAmlAgent(ctx);
   // Ensure the proposal is always defined
   const agentOutput: AgentOutput = {
@@ -537,12 +535,7 @@ app.post("/test/aml", async (req, res) => {
 });
 
 app.post("/test/credit", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "CREDIT",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "CREDIT");
   const out = await runCreditAgent(ctx);
   // Ensure the proposal is always defined
   const agentOutput: AgentOutput = {
@@ -558,12 +551,7 @@ app.post("/test/credit", async (req, res) => {
 });
 
 app.post("/test/risk", async (req, res) => {
-  const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
-    slot: "RISK",
-    payload: req.body.payload || {},
-  };
+  const ctx = buildContext(req, "RISK");
   const out = await runRiskAgent(ctx);
   // Ensure the proposal is always defined
   const agentOutput: AgentOutput = {

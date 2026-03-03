@@ -13,9 +13,21 @@ async function runCreditAgent(ctx) {
     }
     const { agentId, config } = agentInfo;
     if (config.type === "http") {
-        const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-        out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };
-        return out;
+        try {
+            const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
+            out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "CREDIT" };
+            return out;
+        }
+        catch (err) {
+            return {
+                proposal: "escalate",
+                confidence: 0.5,
+                reasons: [`Credit HTTP agent unreachable: ${err?.message || err}`],
+                policy_refs: [],
+                flags: { missing_data: true, contradictory_signals: true },
+                metadata: { agent_name: agentId, slot: "CREDIT" },
+            };
+        }
     }
     // Simple heuristic fallback
     const income = ctx.payload?.declaredIncome ?? 0;
@@ -29,3 +41,4 @@ async function runCreditAgent(ctx) {
         metadata: { agent_name: "credit_local_heuristic", slot: "CREDIT" },
     };
 }
+//# sourceMappingURL=creditAgent.js.map

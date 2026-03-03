@@ -187,11 +187,3 @@ app.post("/agents/kyc/decide", (req, res) => {
 app.listen(5001, () => {
   console.log("Mock KYC Agent running on http://localhost:5001");
 });
-
-// Start server
-app.listen(port, () => {
-  console.log(`Mock Address Agent running at http://localhost:${port}`);
-  console.log('System prompt:', SYSTEM_PROMPT);
-});
-
-module.exports = app;

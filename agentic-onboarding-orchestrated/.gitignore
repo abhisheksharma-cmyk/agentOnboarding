@@ -1,1 +1,16 @@
 node_modules**
+agentic-onboarding-orchestrated/dist/**
+agentic-onboarding-orchestrated/dist/index.js
+agentic-onboarding-orchestrated/dist/agents/amlAgent.js
+agentic-onboarding-orchestrated/dist/agents/creditAgent.js
+agentic-onboarding-orchestrated/dist/agents/kycAgent.js
+agentic-onboarding-orchestrated/dist/agents/riskAgent.js
+agentic-onboarding-orchestrated/dist/auditTracking/audit.js
+agentic-onboarding-orchestrated/dist/decisionGateway/decisionGateway.js
+agentic-onboarding-orchestrated/dist/eventBus/eventBus.js
+agentic-onboarding-orchestrated/dist/orchestrator/orchestrator.js
+agentic-onboarding-orchestrated/dist/registry/agentRegistry.js
+agentic-onboarding-orchestrated/dist/types/types.js
+agentic-onboarding-orchestrated/dist/utils/httpHelper.js
+agentic-onboarding-orchestrated/dist/workflows/onboardingWorkflow.js
+dist*

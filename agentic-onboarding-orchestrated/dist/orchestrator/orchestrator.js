@@ -69,6 +69,7 @@ function initOrchestrator() {
             }, traceId);
         }
     });
+    // KYC -> AML
     eventBus_1.eventBus.subscribe("onboarding.kyc", async ({ data, traceId }) => {
         const stateMachine = stateMachines.get(traceId);
         if (!stateMachine) {
@@ -185,6 +186,7 @@ function initOrchestrator() {
             }, traceId);
         }
     });
+    // AML -> Credit
     eventBus_1.eventBus.subscribe("onboarding.aml", async ({ data, traceId }) => {
         const stateMachine = stateMachines.get(traceId);
         if (!stateMachine) {
@@ -232,6 +234,7 @@ function initOrchestrator() {
             }, traceId);
         }
     });
+    // Credit -> Risk
     eventBus_1.eventBus.subscribe("onboarding.credit", async ({ data, traceId }) => {
         const stateMachine = stateMachines.get(traceId);
         if (!stateMachine) {
@@ -279,6 +282,7 @@ function initOrchestrator() {
             }, traceId);
         }
     });
+    // Risk -> Finish
     eventBus_1.eventBus.subscribe("onboarding.risk", async ({ data, traceId }) => {
         const stateMachine = stateMachines.get(traceId);
         if (!stateMachine) {
@@ -369,3 +373,13 @@ function initOrchestrator() {
         }
     });
 }
+async function runAndEvaluate(runner, ctx, traceId, stage) {
+    (0, audit_1.audit)(traceId, `${stage}.invoked`, { ctx });
+    const start = Date.now();
+    const out = await runner(ctx);
+    const durationMs = Date.now() - start;
+    const final = (0, decisionGateway_1.evaluateDecision)(out);
+    (0, audit_1.audit)(traceId, `${stage}.completed`, { agentOutput: out, finalDecision: final, durationMs });
+    return { out, final, durationMs };
+}
+//# sourceMappingURL=orchestrator.js.map

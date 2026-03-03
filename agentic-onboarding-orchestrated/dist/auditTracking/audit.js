@@ -17,8 +17,9 @@ function audit(traceId, stage, payload) {
     auditEvents.push(evt);
     // Structured log for grep / log aggregation
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify({ type: "audit", ...evt }));
+    console.log("\n" + JSON.stringify({ type: "audit", ...evt }) + "\n");
 }
 function getTrace(traceId) {
     return auditEvents.filter(e => e.traceId === traceId);
 }
+//# sourceMappingURL=audit.js.map

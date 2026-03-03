@@ -16,7 +16,7 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${file.originalname}`);
   }
 });
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
@@ -25,7 +25,7 @@ class KYC implements Agent {
   name: string = 'KYC Agent';
   description: string = 'Handles KYC document verification';
   private nextAgent?: Agent;
-  
+
   async handle(input: UserInput, context: AgentContext): Promise<AgentResponse> {
     try {
       // Implement the KYC handling logic here
@@ -41,7 +41,7 @@ class KYC implements Agent {
       };
     }
   }
-  
+
   setNextAgent(agent: Agent): void {
     this.nextAgent = agent;
   }
@@ -60,9 +60,9 @@ Object.defineProperty(kycAgent, 'endpoints', {
         async (req: Request, res: Response) => {
           try {
             if (!req.file) {
-              return res.status(400).json({ 
-                success: false, 
-                message: 'No file uploaded' 
+              return res.status(400).json({
+                success: false,
+                message: 'No file uploaded'
               });
             }
             const { documentType } = req.body;

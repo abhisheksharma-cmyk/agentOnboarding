@@ -71,7 +71,7 @@ export function initOrchestrator() {
     try {
       const ctx: AgentContext = data;
       let stateMachine = createStateMachine(ctx, MAX_RETRIES);
-      
+
       // Transition from INITIALIZED to KYC_STARTED
       stateMachine = transitionState(stateMachine, 'START', {});
       stateMachines.set(traceId, stateMachine);
@@ -91,6 +91,7 @@ export function initOrchestrator() {
     }
   });
 
+  // KYC -> AML
   eventBus.subscribe("onboarding.kyc", async ({ data, traceId }) => {
     const stateMachine = stateMachines.get(traceId);
     if (!stateMachine) {
@@ -143,7 +144,7 @@ export function initOrchestrator() {
         updatedMachine = transitionState(currentMachine, 'KYC_APPROVED', { agentOutput, durationMs });
         logStateTransition(traceId, currentMachine.currentState, updatedMachine.currentState, 'KYC_APPROVED');
         stateMachines.set(traceId, updatedMachine);
-        
+
         eventBus.publish("onboarding.kyc_complete", {
           agentOutput,
           final,
@@ -161,7 +162,7 @@ export function initOrchestrator() {
         updatedMachine = transitionState(currentMachine, 'KYC_REJECTED', { agentOutput, durationMs });
         logStateTransition(traceId, currentMachine.currentState, updatedMachine.currentState, 'KYC_REJECTED');
         stateMachines.set(traceId, updatedMachine);
-        
+
         eventBus.publish("onboarding.kyc_complete", {
           agentOutput,
           final,
@@ -199,16 +200,16 @@ export function initOrchestrator() {
       const durationMs = Date.now() - start;
       const final = evaluateDecision(agentOutput);
       audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
-      
+
       // Update state machine
       const event: OnboardingEvent = final === "APPROVE" ? 'ADDRESS_VERIFIED' : 'ADDRESS_REJECTED';
       const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
-      
+
       logStateTransition(traceId, stateMachine.currentState, updatedMachine.currentState, event);
-      
+
       eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
-      
+
       if (final === "APPROVE") {
         const nextMachine = transitionState(updatedMachine, 'START', {});
         logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
@@ -229,6 +230,7 @@ export function initOrchestrator() {
     }
   });
 
+  // AML -> Credit
   eventBus.subscribe("onboarding.aml", async ({ data, traceId }) => {
     const stateMachine = stateMachines.get(traceId);
     if (!stateMachine) {
@@ -287,6 +289,7 @@ export function initOrchestrator() {
     }
   });
 
+  // Credit -> Risk
   eventBus.subscribe("onboarding.credit", async ({ data, traceId }) => {
     const stateMachine = stateMachines.get(traceId);
     if (!stateMachine) {
@@ -346,6 +349,7 @@ export function initOrchestrator() {
     }
   });
 
+  // Risk -> Finish
   eventBus.subscribe("onboarding.risk", async ({ data, traceId }) => {
     const stateMachine = stateMachines.get(traceId);
     if (!stateMachine) {
@@ -421,12 +425,12 @@ export function initOrchestrator() {
   eventBus.subscribe("onboarding.error", ({ data, traceId }) => {
     const { error, step, currentState } = data;
     console.error(`[${traceId}] Error in step ${step || 'unknown'}:`, error);
-    
+
     // Get the latest state machine
     const stateMachine = stateMachines.get(traceId);
     if (stateMachine) {
       const actualState = currentState || stateMachine.currentState;
-      
+
       // Only log transition if we're in a valid state
       // Don't try to transition invalid states - just log and clean up
       if (actualState !== 'INITIALIZED' || step !== 'KYC') {
@@ -446,9 +450,26 @@ export function initOrchestrator() {
         // For INITIALIZED state errors, just log without invalid transition
         console.error(`[${traceId}] Error occurred in ${actualState} state, cannot transition. Cleaning up.`);
       }
-      
+
       // Clean up the state machine on error
       stateMachines.delete(traceId);
     }
   });
+}
+
+type AgentRunner = (ctx: AgentContext) => Promise<any>;
+
+async function runAndEvaluate(
+  runner: AgentRunner,
+  ctx: AgentContext,
+  traceId: string,
+  stage: "kyc" | "aml" | "credit" | "risk"
+) {
+  audit(traceId, `${stage}.invoked`, { ctx });
+  const start = Date.now();
+  const out = await runner(ctx);
+  const durationMs = Date.now() - start;
+  const final = evaluateDecision(out);
+  audit(traceId, `${stage}.completed`, { agentOutput: out, finalDecision: final, durationMs });
+  return { out, final, durationMs };
 }

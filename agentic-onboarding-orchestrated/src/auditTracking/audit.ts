@@ -22,7 +22,7 @@ export function audit(traceId: string, stage: string, payload: any) {
   auditEvents.push(evt);
   // Structured log for grep / log aggregation
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ type: "audit", ...evt }));
+  console.log("\n" + JSON.stringify({ type: "audit", ...evt }) + "\n");
 }
 
 export function getTrace(traceId: string): AuditEvent[] {
