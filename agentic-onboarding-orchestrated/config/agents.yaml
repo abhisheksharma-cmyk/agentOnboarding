@@ -1,12 +1,38 @@
+llm_profiles:
+  groq_default:
+    provider: groq
+    model: llama-3.3-70b-versatile
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+    temperature: 0.1
+    max_tokens: 700
+    timeout_ms: 15000
+  openai_default:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_tokens: 700
+    timeout_ms: 15000
+  anthropic_default:
+    provider: anthropic
+    model: claude-3-5-haiku-latest
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.1
+    max_tokens: 700
+    timeout_ms: 15000
+
 agents:
   ADDRESS_VERIFICATION:
     active: address_v1
     versions:
       address_v1:
         type: http
-        endpoint: http://localhost:5000/api/v1/verify
-        timeout_ms: 10000
+        endpoint: http://localhost:5000/onboarding/verify-address
+        timeout_ms: 20000
         enabled: true
+        documentation: http://localhost:5000/api-docs/
+
   KYC:
     active: kyc_agent_v1
     versions:
@@ -15,6 +41,33 @@ agents:
         endpoint: http://localhost:5005/agents/kyc2/decide
         timeout_ms: 1500
         enabled: true
+      kyc_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 15000
+        enabled: true
+        langgraph:
+          llm_profile: groq_default
+          retry:
+            max_attempts: 2
+            backoff_ms: 250
+          prompt:
+            system_prompt: >
+              You are a KYC decision agent. Use only facts in the given context/payload.
+              If key KYC fields or identity proof are missing, return proposal "escalate".
+            user_prompt_template: |
+              Slot: {slot}
+              Customer ID: {customer_id}
+              Application ID: {application_id}
+
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
   AML:
     active: aml_agent_v1
     versions:
@@ -23,6 +76,27 @@ agents:
         endpoint: http://localhost:5006/agents/aml2/decide
         timeout_ms: 1500
         enabled: true
+      aml_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 15000
+        enabled: true
+        langgraph:
+          llm_profile: groq_default
+          prompt:
+            system_prompt: >
+              You are an AML decision agent. Flag high-risk patterns conservatively.
+              If uncertainty is high, escalate.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
   CREDIT:
     active: credit_agent_v1
     versions:
@@ -31,6 +105,27 @@ agents:
         endpoint: http://localhost:5007/agents/credit2/decide
         timeout_ms: 2000
         enabled: true
+      credit_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 15000
+        enabled: true
+        langgraph:
+          llm_profile: groq_default
+          prompt:
+            system_prompt: >
+              You are a credit policy assistant.
+              Use conservative underwriting. Escalate when data quality is low.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
   RISK:
     active: risk_agent_v1
     versions:
@@ -39,3 +134,23 @@ agents:
         endpoint: ""
         timeout_ms: 1000
         enabled: true
+      risk_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 15000
+        enabled: true
+        langgraph:
+          llm_profile: groq_default
+          prompt:
+            system_prompt: >
+              You are a risk consolidation agent.
+              Deny only for clear high-risk conditions, otherwise escalate on uncertainty.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}

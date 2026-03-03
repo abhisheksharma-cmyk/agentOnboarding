@@ -7,7 +7,11 @@ const httpHelper_1 = require("../utils/httpHelper");
  * AML / Fraud agent wrapper.
  */
 async function runAmlAgent(ctx) {
-    const { agentId, config } = (0, agentRegistry_1.resolveAgent)("AML");
+    const agentInfo = (0, agentRegistry_1.getAgentConfig)("AML");
+    if (!agentInfo) {
+        throw new Error('No AML agent configuration found');
+    }
+    const { agentId, config } = agentInfo;
     if (config.type === "http") {
         try {
             const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);

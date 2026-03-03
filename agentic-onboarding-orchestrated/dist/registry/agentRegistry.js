@@ -3,40 +3,80 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.loadRegistry = loadRegistry;
-exports.resolveAgent = resolveAgent;
+exports.getAgentConfig = getAgentConfig;
+exports.registerAgentEndpoints = registerAgentEndpoints;
+exports.loadAgentsConfig = loadAgentsConfig;
+exports.getActiveAgents = getActiveAgents;
+// src/registry/agentRegistry.ts
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const js_yaml_1 = __importDefault(require("js-yaml"));
-let cache = null;
-function loadRegistry() {
-    if (cache)
-        return cache;
-    const file = path_1.default.join(process.cwd(), "config", "agents.yaml");
-    const raw = fs_1.default.readFileSync(file, "utf-8");
-    const parsed = js_yaml_1.default.load(raw);
-    cache = parsed;
-    return parsed;
-}
-function resolveAgent(slot) {
-    const registry = loadRegistry();
-    const slotConfig = registry.agents[slot];
+// const agentConfigs: Record<string, AgentConfig> = {
+//   KYC: {
+//     agentId: 'kyc-verification',  // Add a unique identifier for this agent
+//     type: 'http',
+//     endpoint: '/api/kyc',
+//     timeout_ms: 30000,
+//     enabled: true
+//   }
+// };
+function getAgentConfig(slot, version) {
+    if (!agentsConfig) {
+        loadAgentsConfig();
+    }
+    const slotConfig = agentsConfig?.[slot];
     if (!slotConfig) {
-        throw new Error(`No agent slot configured for ${slot}`);
+        console.warn(`No configuration found for slot: ${slot}`);
+        return null;
     }
-    // Handle direct configuration (without versions)
-    if ('endpoint' in slotConfig) {
-        return {
-            agentId: slot,
-            config: slotConfig
-        };
+    const agentVersion = version || slotConfig.active;
+    const config = slotConfig.versions[agentVersion];
+    if (!config || !config.enabled) {
+        console.warn(`No configuration found for ${slot} version: ${agentVersion} or Agent ${slot} version ${agentVersion} is disabled`);
+        return null;
     }
-    // Handle versioned configuration
-    const activeId = slotConfig.active;
-    const agentCfg = slotConfig.versions[activeId];
-    if (!agentCfg || !agentCfg.enabled) {
-        throw new Error(`Active agent '${activeId}' for slot '${slot}' is not enabled or missing`);
+    const agentId = `${slot.toLowerCase()}-${agentVersion}`;
+    return { agentId, config };
+}
+function registerAgentEndpoints(app, agent) {
+    if (!agent.endpoints)
+        return;
+    agent.endpoints.forEach((endpoint) => {
+        const { method, path, handler } = endpoint;
+        const handlers = Array.isArray(handler) ? handler : [handler];
+        app[method.toLowerCase()](path, ...handlers);
+    });
+}
+let agentsConfig = null;
+function loadAgentsConfig(configPath) {
+    if (agentsConfig)
+        return agentsConfig;
+    try {
+        const configFile = configPath || path_1.default.join(process.cwd(), 'config', 'agents.yaml');
+        const fileContents = fs_1.default.readFileSync(configFile, 'utf8');
+        const yamlContent = js_yaml_1.default.load(fileContents);
+        agentsConfig = yamlContent.agents || yamlContent;
+        if (!agentsConfig || typeof agentsConfig !== 'object') {
+            throw new Error('Invalid agents configuration');
+        }
+        return agentsConfig;
     }
-    return { agentId: activeId, config: agentCfg };
+    catch (error) {
+        console.error('Failed to load agents configuration:', error);
+        throw new Error('Failed to load agents configuration');
+    }
+}
+function getActiveAgents() {
+    if (!agentsConfig) {
+        loadAgentsConfig();
+    }
+    const activeAgents = {};
+    for (const [slot] of Object.entries(agentsConfig || {})) {
+        const agentInfo = getAgentConfig(slot);
+        if (agentInfo) {
+            activeAgents[slot] = agentInfo;
+        }
+    }
+    return activeAgents;
 }
 //# sourceMappingURL=agentRegistry.js.map

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <marker id="arr3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="1040" fill="url(#bg3)"/>
+  <text x="60" y="58" font-size="34" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">YAML Pluggability and Configuration Control Surface</text>
+  <text x="60" y="92" font-size="18" font-family="Segoe UI, Arial" fill="#334155">Versioned slot-routing enables operational agility without code-level orchestration rewrites</text>
+
+  <rect x="70" y="140" width="710" height="760" rx="16" ry="16" fill="url(#panel)"/>
+  <text x="104" y="188" font-size="26" font-family="Consolas, monospace" fill="#93c5fd" font-weight="700">config/agents.yaml</text>
+  <text x="104" y="236" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">agents:</text>
+  <text x="104" y="268" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">  KYC:</text>
+  <text x="104" y="300" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">    active: kyc_agent_v1</text>
+  <text x="104" y="332" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">    versions:</text>
+  <text x="104" y="364" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">      kyc_agent_v1:</text>
+  <text x="104" y="396" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">        type: http</text>
+  <text x="104" y="428" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">        endpoint: http://localhost:5005/agents/kyc2/decide</text>
+  <text x="104" y="460" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">        timeout_ms: 1500</text>
+  <text x="104" y="492" font-size="19" font-family="Consolas, monospace" fill="#e2e8f0">        enabled: true</text>
+  <text x="104" y="548" font-size="19" font-family="Consolas, monospace" fill="#cbd5e1">  AML, CREDIT, ADDRESS_VERIFICATION, RISK...</text>
+  <text x="104" y="580" font-size="19" font-family="Consolas, monospace" fill="#cbd5e1">  each with independent active version pointers</text>
+  <text x="104" y="612" font-size="19" font-family="Consolas, monospace" fill="#cbd5e1">  and slot-specific operational controls.</text>
+
+  <rect x="860" y="170" width="670" height="160" rx="14" ry="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="890" y="220" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Active Version Governance</text>
+  <text x="890" y="254" font-size="16" font-family="Segoe UI, Arial" fill="#334155">The active key defines production routing instantly,</text>
+  <text x="890" y="279" font-size="16" font-family="Segoe UI, Arial" fill="#334155">enabling release control from configuration.</text>
+  <line x1="780" y1="260" x2="860" y2="250" stroke="#334155" stroke-width="2.5" marker-end="url(#arr3)"/>
+
+  <rect x="860" y="360" width="670" height="160" rx="14" ry="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="890" y="410" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Multi-Version Strategy</text>
+  <text x="890" y="444" font-size="16" font-family="Segoe UI, Arial" fill="#334155">The versions map supports blue-green promotion,</text>
+  <text x="890" y="469" font-size="16" font-family="Segoe UI, Arial" fill="#334155">rollback, and controlled provider substitution.</text>
+  <line x1="780" y1="430" x2="860" y2="440" stroke="#334155" stroke-width="2.5" marker-end="url(#arr3)"/>
+
+  <rect x="860" y="550" width="670" height="160" rx="14" ry="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="890" y="600" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Safety and Runtime Controls</text>
+  <text x="890" y="634" font-size="16" font-family="Segoe UI, Arial" fill="#334155">timeout_ms and enabled form a practical kill-switch</text>
+  <text x="890" y="659" font-size="16" font-family="Segoe UI, Arial" fill="#334155">and latency-governance surface.</text>
+  <line x1="780" y1="600" x2="860" y2="630" stroke="#334155" stroke-width="2.5" marker-end="url(#arr3)"/>
+
+  <rect x="860" y="740" width="670" height="160" rx="14" ry="14" fill="#0f766e"/>
+  <text x="890" y="790" font-size="24" font-family="Segoe UI, Arial" fill="#ffffff" font-weight="700">Outcome</text>
+  <text x="890" y="824" font-size="16" font-family="Segoe UI, Arial" fill="#d1fae5">Pluggable, configurable, and operationally resilient</text>
+  <text x="890" y="849" font-size="16" font-family="Segoe UI, Arial" fill="#d1fae5">onboarding intelligence mesh.</text>
+</svg>

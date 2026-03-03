@@ -7,7 +7,11 @@ const httpHelper_1 = require("../utils/httpHelper");
  * Credit Assessment agent wrapper.
  */
 async function runCreditAgent(ctx) {
-    const { agentId, config } = (0, agentRegistry_1.resolveAgent)("CREDIT");
+    const agentInfo = (0, agentRegistry_1.getAgentConfig)("CREDIT");
+    if (!agentInfo) {
+        throw new Error('No CREDIT agent configuration found');
+    }
+    const { agentId, config } = agentInfo;
     if (config.type === "http") {
         try {
             const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);

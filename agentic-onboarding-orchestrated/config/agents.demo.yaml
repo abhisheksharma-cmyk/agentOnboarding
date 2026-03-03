@@ -1,0 +1,14 @@
+agents:
+  CREDIT:
+    active: credit_demo_local_v1
+    versions:
+      credit_demo_local_v1:
+        type: local
+        endpoint: ""
+        timeout_ms: 1000
+        enabled: true
+      credit_http_v1:
+        type: http
+        endpoint: http://localhost:5007/agents/credit2/decide
+        timeout_ms: 2000
+        enabled: true

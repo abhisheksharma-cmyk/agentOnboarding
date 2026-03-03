@@ -1,4 +1,6 @@
 require("dotenv").config();
+console.log("[KYC2 Startup] Checking GROQ_API_KEY environment variable. Has value: ", !!process.env.GROQ_API_KEY);
+console.log("[KYC2 Startup] Checking GROQ_MODEL environment variable. Has value: ", !!process.env.GROQ_MODEL);
 const express = require("express");
 const { callGroq } = require("../groq/groqClient");
 
@@ -52,6 +54,44 @@ function normalizeDob(dob) {
 
 const namesMatch = (a, b) => !!a && !!b && normalize(a) === normalize(b);
 
+function tokenizeName(name) {
+  return normalize(name)
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function isInitialToken(token) {
+  return /^[a-z]$/.test(token);
+}
+
+function getNameMatchType(docName, applicantName) {
+  if (!docName || !applicantName) return "unknown";
+  if (namesMatch(docName, applicantName)) return "exact";
+
+  const docTokens = tokenizeName(docName);
+  const applicantTokens = tokenizeName(applicantName);
+
+  if (!docTokens.length || !applicantTokens.length) return "mismatch";
+  if (docTokens.length !== applicantTokens.length) return "mismatch";
+
+  let usedInitials = false;
+
+  for (let i = 0; i < docTokens.length; i++) {
+    const dt = docTokens[i];
+    const at = applicantTokens[i];
+
+    if (dt === at) continue;
+    if (isInitialToken(dt) && at.startsWith(dt)) {
+      usedInitials = true;
+      continue;
+    }
+    return "mismatch";
+  }
+
+  return usedInitials ? "initials" : "mismatch";
+}
+
 function aadhaarLooksValid(num) {
   if (!AADHAAR_REGEX.test(num)) return false;
   if (/(.)\1{11}/.test(num)) return false; // reject same-digit repeats
@@ -67,6 +107,9 @@ function buildApplicantFields(applicant) {
 }
 
 async function runGroqExtraction(applicant, documents) {
+  console.log("[Groq] Starting extraction for applicant:", applicant);
+  console.log("[Groq] Documents to process:", documents.length);
+
   const payload = { applicant, documents };
   const systemPrompt = `You are a KYC document extraction agent. Given applicant info and an array of documents (may include text, base64, or fields), extract key identity fields. Return ONLY valid JSON.
 Input JSON: ${JSON.stringify(payload)}
@@ -89,15 +132,18 @@ Schema:
 }
 If unknown, return "" for strings and [] for arrays.`;
   try {
+    console.log("[Groq] Calling callGroq with system prompt (length:", systemPrompt.length, ")");
     const out = await callGroq(systemPrompt);
+    console.log("[Groq] Successfully received response from Groq");
     return out;
   } catch (err) {
-    console.error("Groq extraction failed", err);
-    return { documents: [], summary_reasons: ["Groq extraction failed"] };
+    console.error("[Groq] Extraction failed:", err.message);
+    console.error("[Groq] Error details:", err);
+    return { documents: [], summary_reasons: ["Groq extraction failed: " + err.message] };
   }
 }
 
-function evaluateDocument(doc, applicant) {
+function evaluateDocument(doc, applicant, riskTolerance = "medium") {
   const type = normalize(doc.type);
   const number = (doc.number || doc.id || "").toString().trim();
   const docName = doc.name || doc.holder || doc.fullName || "";
@@ -111,42 +157,41 @@ function evaluateDocument(doc, applicant) {
     reasons: [],
     suspicious: false,
     missingData: false,
-    matchedFields: 0,
-    totalFields: 0,
+    policyConflict: false,
+    nameMatchType: "unknown",
   };
 
   const applicantFields = buildApplicantFields(applicant);
 
-  const nameMatches = namesMatch(docName, applicantFields.name);
-  const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantFields.dob);
-  const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantFields.gender);
+  const nameMatchType = getNameMatchType(docName, applicantName);
+  result.nameMatchType = nameMatchType;
+  const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantDob);
+  const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantGender);
 
   const applyMatches = () => {
-    if (nameMatches) {
+    if (nameMatchType === "exact") {
       result.score += 0.2;
-      result.matchedFields += 1;
-    } else if (docName && applicantFields.name) {
-      result.reasons.push("Name mismatch applicant vs document");
+    } else if (nameMatchType === "initials") {
+      if (riskTolerance === "high") {
+        result.score += 0.15;
+        result.reasons.push("Name matched by initials (high risk tolerance)");
+      } else if (riskTolerance === "low") {
+        result.reasons.push("Name only matches by initials (low risk tolerance)");
+        result.policyConflict = true;
+        result.suspicious = true;
+      } else {
+        result.reasons.push("Name only matches by initials");
+        result.suspicious = true;
+      }
+    } else if (nameMatchType === "mismatch") {
+      result.reasons.push("Name mismatch between applicant and document");
+      if (riskTolerance === "low") {
+        result.policyConflict = true;
+      }
       result.suspicious = true;
     }
-    if (dobMatches) {
-      result.score += 0.1;
-      result.matchedFields += 1;
-    } else if (docDob && applicantFields.dob) {
-      result.reasons.push("DOB mismatch applicant vs document");
-      result.suspicious = true;
-    }
-    if (genderMatches) {
-      result.score += 0.05;
-      result.matchedFields += 1;
-    } else if (docGender && applicantFields.gender) {
-      result.reasons.push("Gender mismatch applicant vs document");
-      result.suspicious = true;
-    }
-    // Count fields considered
-    if (docName || applicantFields.name) result.totalFields += 1;
-    if (docDob || applicantFields.dob) result.totalFields += 1;
-    if (docGender || applicantFields.gender) result.totalFields += 1;
+    if (dobMatches) result.score += 0.1;
+    if (genderMatches) result.score += 0.05;
   };
 
   if (looksAuthentic) {
@@ -196,6 +241,7 @@ function evaluateDocument(doc, applicant) {
 }
 
 function buildDecision({ applicant, documents }) {
+  const riskTolerance = normalize(applicant?.risk_tolerance || applicant?.riskTolerance || "medium");
   const reasons = [];
   const policyRefs = new Set();
   let missingData = false;
@@ -205,9 +251,10 @@ function buildDecision({ applicant, documents }) {
   let consideredFields = 0;
 
   const docResults = documents.map((doc) => {
-    const res = evaluateDocument(doc, applicant);
+    const res = evaluateDocument(doc, applicant, riskTolerance);
     res.policyRefs.forEach((p) => policyRefs.add(p));
     if (res.missingData) missingData = true;
+    if (res.policyConflict) policyConflict = true;
     if (res.suspicious) contradictory = true;
     matchedFields += res.matchedFields;
     consideredFields += res.totalFields;
@@ -224,18 +271,23 @@ function buildDecision({ applicant, documents }) {
   const hasStrong = bestScore >= 0.75;
   const hasSuspicious = docResults.some((r) => r.suspicious);
   const hasMinimal = documents.length > 0 && bestScore >= 0.35;
-  const fieldMatchRatio = consideredFields ? matchedFields / consideredFields : 0;
-  const hasCoverage = fieldMatchRatio >= 0.5; // at least half of compared fields agree
+  const hasInitialsOnly = docResults.some((r) => r.nameMatchType === "initials");
 
   let proposal = "escalate";
-  if (hasStrong && !hasSuspicious && hasCoverage) {
+  if (riskTolerance === "low" && (policyConflict || hasSuspicious)) {
+    proposal = "deny";
+  } else if (hasStrong && !hasSuspicious) {
+    proposal = "approve";
+  } else if (riskTolerance === "high" && hasInitialsOnly && !hasSuspicious) {
     proposal = "approve";
   } else if (!hasMinimal || hasSuspicious) {
     proposal = "escalate";
   }
 
-  const confidenceBase = hasStrong ? bestScore : bestScore - 0.1;
-  const confidence = Math.max(0.3, Math.min(0.9, confidenceBase * (hasCoverage ? 1 : 0.8)));
+  let confidence = Math.max(0.35, Math.min(0.9, hasStrong ? bestScore : bestScore - 0.1));
+  if (proposal === "deny" && confidence < 0.85) confidence = 0.85;
+  if (riskTolerance === "high" && proposal === "approve" && confidence < 0.82) confidence = 0.82;
+  if (riskTolerance === "low" && proposal === "escalate" && confidence > 0.7) confidence = 0.7;
 
   return {
     proposal,
@@ -257,21 +309,148 @@ function buildDecision({ applicant, documents }) {
 }
 
 app.post("/agents/kyc2/decide", async (req, res) => {
-  const payload = req.body?.input?.context?.payload || {};
-  const applicant = payload.applicant || {};
-  const documents = payload.documents || payload.docs || [];
+  console.log("[KYC2] Received request at /agents/kyc2/decide");
+  console.log("[KYC2] Request body:", JSON.stringify(req.body, null, 2));
 
+  const payload = req.body?.input?.context?.payload || {};
+  const riskTolerance = normalize(payload?.risk_tolerance || payload?.riskTolerance || "medium");
+  const applicant = {
+    ...(payload.applicant || {}),
+    risk_tolerance: riskTolerance
+  };
+  const documents = payload.documents || payload.docs || [];
+  const documentType = payload.documentType || documents[0]?.type || 'unknown';
+
+  console.log("[KYC2] Extracted - applicant:", applicant);
+  console.log("[KYC2] Extracted - documents count:", documents.length);
+  console.log("[KYC2] Document type:", documentType);
+
+  console.log("[KYC2] Calling Groq extraction...");
   const groqOut = await runGroqExtraction(applicant, documents);
+  console.log("[KYC2] Groq extraction result:", JSON.stringify(groqOut, null, 2));
+
   const extractedDocs = groqOut?.documents || [];
   const mergedDocs = documents.map((doc, idx) => {
     const extracted = extractedDocs.find((d) => d.index === idx) || extractedDocs[idx] || {};
-    return { ...doc, ...extracted };
+    return {
+      ...doc,
+      ...extracted,
+      type: extracted.type || doc.type || documentType // Ensure type is set
+    };
   });
 
+  // Validate each document based on its type
+  const validationResults = mergedDocs.map((doc) => {
+    const docType = normalize(doc.type || documentType);
+    let validation = {
+      isValid: true,
+      errors: [],
+      confidence: 0.5
+    };
+
+    // Apply type-specific validation
+    if (docType.includes('passport')) {
+      if (!doc.number || !/^[A-Z0-9]{8,9}$/i.test(doc.number)) {
+        validation.errors.push('Invalid passport number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+      if (!doc.expiryDate) validation.errors.push('Expiry date is required');
+      if (doc.expiryDate && new Date(doc.expiryDate) < new Date()) {
+        validation.errors.push('Passport has expired');
+        validation.isValid = false;
+      }
+    } else if (docType.includes('driver') || docType.includes('license')) {
+      if (!doc.number || !/^[A-Z0-9]{8,16}$/i.test(doc.number)) {
+        validation.errors.push('Invalid driver\'s license number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+    } else if (docType.includes('aadhaar') || docType.includes('adhar') || docType === 'uid') {
+      if (!doc.number || !/^\d{12}$/.test(doc.number)) {
+        validation.errors.push('Aadhaar number must be exactly 12 digits');
+        validation.isValid = false;
+      } else if (!aadhaarLooksValid(doc.number)) {
+        validation.errors.push('Invalid Aadhaar number checksum');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Name is required');
+      if (!doc.dob) validation.errors.push('Date of birth is required');
+    } else if (docType.includes('utility')) {
+      if (!doc.address || doc.address.length < 10) {
+        validation.errors.push('Address is required and must be complete');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Account holder name is required');
+      if (!doc.issueDate) validation.errors.push('Bill date is required');
+      if (doc.issueDate && new Date(doc.issueDate) < new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)) {
+        validation.errors.push('Utility bill is older than 3 months');
+        validation.isValid = false;
+      }
+    } else if (docType.includes('bank') || docType.includes('statement')) {
+      if (!doc.number || !/^[0-9]{8,18}$/.test(doc.number)) {
+        validation.errors.push('Invalid bank account number format');
+        validation.isValid = false;
+      }
+      if (!doc.name) validation.errors.push('Account holder name is required');
+      if (!doc.address || doc.address.length < 10) {
+        validation.errors.push('Address is required and must be complete');
+        validation.isValid = false;
+      }
+      if (!doc.issueDate) validation.errors.push('Statement date is required');
+      if (doc.issueDate && new Date(doc.issueDate) < new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)) {
+        validation.errors.push('Bank statement is older than 3 months');
+        validation.isValid = false;
+      }
+    }
+
+    // Calculate confidence based on validation
+    const requiredFields = ['number', 'name'];
+    const presentFields = requiredFields.filter(f => doc[f]);
+    validation.confidence = presentFields.length / requiredFields.length;
+    if (doc.quality === 'high') validation.confidence += 0.2;
+    if (doc.looks_authentic === true) validation.confidence += 0.1;
+
+    return { ...doc, validation };
+  });
+
+  // Add validation errors to decision reasons
+  const allValidationErrors = validationResults.flatMap(r => r.validation?.errors || []);
+  const hasInvalidDocs = validationResults.some(r => !r.validation?.isValid);
+
   const decision = buildDecision({ applicant, documents: mergedDocs });
+
+  // Add validation-specific reasons
+  if (allValidationErrors.length > 0) {
+    decision.reasons = [...allValidationErrors, ...decision.reasons];
+  }
+
+  if (hasInvalidDocs && decision.proposal !== 'deny') {
+    decision.proposal = 'escalate';
+    decision.confidence = Math.min(decision.confidence, 0.5);
+    decision.flags.missing_data = true;
+  }
+
   if (groqOut?.summary_reasons?.length) {
     decision.reasons = [...groqOut.summary_reasons, ...decision.reasons];
   }
+
+  // Add validation metadata
+  decision.metadata = {
+    ...decision.metadata,
+    documentType: documentType,
+    riskTolerance: riskTolerance,
+    validationResults: validationResults.map(r => ({
+      type: r.type,
+      isValid: r.validation?.isValid,
+      confidence: r.validation?.confidence,
+      errors: r.validation?.errors
+    }))
+  };
+
+  console.log("[KYC2] Final decision:", JSON.stringify(decision, null, 2));
   res.json(decision);
 });
 

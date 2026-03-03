@@ -43,6 +43,8 @@ export interface AgentContext {
   applicationId: string;
   slot: SlotName;
   payload: any;
+  requestId?: string;
+  sessionId?: string;
 }
 
 export type FinalDecision = "APPROVE" | "DENY" | "ESCALATE";

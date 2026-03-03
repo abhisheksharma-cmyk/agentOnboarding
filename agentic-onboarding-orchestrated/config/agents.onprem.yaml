@@ -1,0 +1,111 @@
+llm_profiles:
+  onprem_primary:
+    provider: openai_compatible
+    model: llama3.1:70b
+    api_key_env: ONPREM_LLM_API_KEY
+    base_url: ${ONPREM_LLM_BASE_URL}
+    temperature: 0.1
+    max_tokens: 700
+    timeout_ms: 20000
+
+agents:
+  ADDRESS_VERIFICATION:
+    active: address_v1
+    versions:
+      address_v1:
+        type: http
+        endpoint: ${ADDRESS_AGENT_URL}
+        timeout_ms: 20000
+        enabled: true
+
+  KYC:
+    active: kyc_langgraph_v1
+    versions:
+      kyc_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 20000
+        enabled: true
+        langgraph:
+          llm_profile: onprem_primary
+          prompt:
+            system_prompt: >
+              KYC decision agent for regulated onboarding.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
+  AML:
+    active: aml_langgraph_v1
+    versions:
+      aml_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 20000
+        enabled: true
+        langgraph:
+          llm_profile: onprem_primary
+          prompt:
+            system_prompt: >
+              AML decision agent for regulated onboarding.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
+  CREDIT:
+    active: credit_langgraph_v1
+    versions:
+      credit_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 20000
+        enabled: true
+        langgraph:
+          llm_profile: onprem_primary
+          prompt:
+            system_prompt: >
+              Credit decision agent. Conservative policy first.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}
+
+  RISK:
+    active: risk_langgraph_v1
+    versions:
+      risk_langgraph_v1:
+        type: langgraph
+        endpoint: ""
+        timeout_ms: 20000
+        enabled: true
+        langgraph:
+          llm_profile: onprem_primary
+          prompt:
+            system_prompt: >
+              Risk consolidation agent. Prefer escalate over unsafe approve.
+            user_prompt_template: |
+              Slot: {slot}
+              Context JSON:
+              {context_json}
+
+              Payload JSON:
+              {payload_json}
+
+              {output_format_instructions}

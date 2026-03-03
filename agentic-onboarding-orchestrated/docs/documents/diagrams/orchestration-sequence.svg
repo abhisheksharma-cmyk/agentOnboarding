@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#ecfeff"/>
+    </linearGradient>
+    <marker id="arr2" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0,0 L11,5.5 L0,11 z" fill="#0f172a"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="920" fill="url(#bg2)"/>
+  <text x="60" y="58" font-size="34" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Orchestration Sequence and Decision Progression</text>
+  <text x="60" y="92" font-size="18" font-family="Segoe UI, Arial" fill="#334155">Event-native lifecycle with policy checkpoints and fail-safe transitions</text>
+
+  <line x1="120" y1="260" x2="1480" y2="260" stroke="#334155" stroke-width="4" marker-end="url(#arr2)"/>
+
+  <circle cx="140" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="340" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="540" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="740" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="940" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="1140" cy="260" r="28" fill="#1d4ed8"/>
+  <circle cx="1340" cy="260" r="28" fill="#0f766e"/>
+
+  <text x="110" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">START</text>
+  <text x="307" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">KYC</text>
+  <text x="485" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">ADDRESS</text>
+  <text x="706" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">AML</text>
+  <text x="901" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">CREDIT</text>
+  <text x="1108" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">RISK</text>
+  <text x="1298" y="320" font-size="18" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="600">COMPLETE</text>
+
+  <rect x="90" y="390" width="460" height="360" rx="16" ry="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="120" y="440" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Execution Semantics</text>
+  <text x="120" y="482" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Transition events are deterministic and validated</text>
+  <text x="120" y="516" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Retry strategy applies exponential backoff</text>
+  <text x="120" y="550" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Decision Gateway evaluates every stage output</text>
+  <text x="120" y="584" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Escalate/Deny can terminate downstream stages</text>
+  <text x="120" y="618" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Audit events are persisted per trace ID</text>
+
+  <rect x="590" y="390" width="470" height="360" rx="16" ry="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="620" y="440" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Policy Guardrails</text>
+  <text x="620" y="482" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Minimum confidence threshold enforcement</text>
+  <text x="620" y="516" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Missing-data and contradiction detection</text>
+  <text x="620" y="550" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Provider high-risk signal suppression</text>
+  <text x="620" y="584" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Final outputs: APPROVE | ESCALATE | DENY</text>
+  <text x="620" y="618" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Explainability payload attached to every decision</text>
+
+  <rect x="1100" y="390" width="430" height="360" rx="16" ry="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="1130" y="440" font-size="24" font-family="Segoe UI, Arial" fill="#0f172a" font-weight="700">Observability Layer</text>
+  <text x="1130" y="482" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Traceable stage timings</text>
+  <text x="1130" y="516" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Transition-by-transition history</text>
+  <text x="1130" y="550" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Unified finished-state publication</text>
+  <text x="1130" y="584" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Fast retrieval through /onboarding/trace/:traceId</text>
+  <text x="1130" y="618" font-size="18" font-family="Segoe UI, Arial" fill="#334155">- Diagnostics-ready audit envelope</text>
+</svg>

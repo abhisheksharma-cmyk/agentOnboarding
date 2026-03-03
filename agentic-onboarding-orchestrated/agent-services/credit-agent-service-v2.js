@@ -12,8 +12,9 @@ function safeNumber(n, fallback = 0) {
   return Number.isFinite(v) ? v : fallback;
 }
 
-function grossToEligibleEmi(grossIncome, foir = 0.55) {
-  return Math.max(0, grossIncome * foir / 12);
+function monthlyToEligibleEmi(monthlyIncome, foir = 0.55) {
+  // Input is monthly income, so do not divide by 12 again.
+  return Math.max(0, monthlyIncome * foir);
 }
 
 function emi(principal, annualRate, months) {
@@ -37,6 +38,7 @@ function assessLocal(payload) {
   const policyRefs = [];
   let missingData = false;
   let contradictory = false;
+  let policyConflict = false;
 
   const applicant = payload.applicant || {};
   const credit = payload.credit || payload.loan || {};
@@ -59,10 +61,11 @@ function assessLocal(payload) {
   if (declaredCibil && declaredCibil < 580) {
     reasons.push("Low bureau/CIBIL score");
     policyRefs.push("POLICY-CREDIT-BUREAU-01");
+    policyConflict = true;
   }
 
   const foirCap = 0.55; // FOIR ~55% typical retail threshold
-  const emiCap = grossToEligibleEmi(income, foirCap) - liabilities;
+  const emiCap = monthlyToEligibleEmi(income, foirCap) - liabilities;
   const maxEligible = emiCap > 0 ? eligibleLoanAmount(emiCap, rate, tenureMonths) : 0;
 
   if (requestedAmount && maxEligible && requestedAmount > maxEligible * 1.15) {
@@ -76,6 +79,7 @@ function assessLocal(payload) {
     policyRefs,
     missingData,
     contradictory,
+    policyConflict,
     maxEligible: Math.max(0, Math.round(maxEligible)),
   };
 }
@@ -114,6 +118,7 @@ function mergeDecision({ groqOut, local }) {
   const policyRefs = new Set();
   let missingData = !!local?.missingData;
   let contradictory = !!local?.contradictory;
+  let policyConflict = !!local?.policyConflict;
 
   if (local) {
     local.reasons.forEach((r) => reasons.push(r));
@@ -124,17 +129,40 @@ function mergeDecision({ groqOut, local }) {
   if (groqOut?.policy_refs) groqOut.policy_refs.forEach((p) => policyRefs.add(p));
   if (groqOut?.flags?.missing_data) missingData = true;
   if (groqOut?.flags?.contradictory_signals) contradictory = true;
+  if (groqOut?.flags?.policy_conflict) policyConflict = true;
 
   let maxEligible = local?.maxEligible || 0;
   if (typeof groqOut?.max_eligible_amount === "number" && groqOut.max_eligible_amount > maxEligible) {
     maxEligible = groqOut.max_eligible_amount;
   }
 
+  const hasGroqDecision = !!groqOut && typeof groqOut === "object";
   let proposal = groqOut?.proposal || "escalate";
   let confidence = typeof groqOut?.confidence === "number" ? groqOut.confidence : 0.55;
 
+  // Deterministic local fallback for demo stability when Groq output is unavailable.
+  if (!hasGroqDecision) {
+    if (policyConflict) {
+      proposal = "deny";
+      confidence = 0.9;
+      reasons.push("Policy conflict detected by local credit rules");
+    } else if (missingData) {
+      proposal = "escalate";
+      confidence = 0.75;
+    } else if (contradictory) {
+      proposal = "escalate";
+      confidence = 0.78;
+    } else {
+      proposal = "approve";
+      confidence = 0.88;
+      reasons.push("No adverse credit policy signals detected by local rules");
+      policyRefs.add("POLICY-CREDIT-LOCAL-LOWRISK-01");
+    }
+  }
+
   if (missingData && proposal === "approve") proposal = "escalate";
   if (contradictory && proposal === "approve") proposal = "escalate";
+  if (policyConflict && proposal === "approve") proposal = "deny";
 
   if (!reasons.length) reasons.push("Automated credit mock evaluation");
   confidence = Math.min(0.95, Math.max(0.4, confidence));
@@ -147,6 +175,7 @@ function mergeDecision({ groqOut, local }) {
     flags: {
       missing_data: missingData,
       contradictory_signals: contradictory,
+      policy_conflict: policyConflict,
     },
     max_eligible_amount: maxEligible,
     metadata: { ...DEFAULT_METADATA },
