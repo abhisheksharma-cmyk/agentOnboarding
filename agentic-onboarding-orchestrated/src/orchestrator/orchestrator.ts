@@ -152,8 +152,10 @@ export function initOrchestrator() {
         }, traceId);
 
         // Move to next step
-        logStateTransition(traceId, 'KYC_COMPLETED', 'ADDRESS_VERIFICATION_STARTED', 'START');
-        eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine: updatedMachine }, traceId);
+        const nextMachine = transitionState(updatedMachine, 'START', {});
+        logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
+        stateMachines.set(traceId, nextMachine);
+        eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine: nextMachine }, traceId);
       } else {
         // For ESCALATE or DENY, transition from KYC_STARTED to COMPLETED
         updatedMachine = transitionState(currentMachine, 'KYC_REJECTED', { agentOutput, durationMs });
@@ -208,8 +210,10 @@ export function initOrchestrator() {
       eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
       
       if (final === "APPROVE") {
-        logStateTransition(traceId, 'ADDRESS_VERIFICATION_COMPLETED', 'AML_STARTED', 'START');
-        eventBus.publish("onboarding.aml", { ...ctx, stateMachine: updatedMachine }, traceId);
+        const nextMachine = transitionState(updatedMachine, 'START', {});
+        logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
+        stateMachines.set(traceId, nextMachine);
+        eventBus.publish("onboarding.aml", { ...ctx, stateMachine: nextMachine }, traceId);
       } else {
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
@@ -235,7 +239,6 @@ export function initOrchestrator() {
     try {
       const ctx: AgentContext = data;
       audit(traceId, "aml.invoked", { ctx });
-      logStateTransition(traceId, 'AML_STARTED', 'AML_COMPLETED', 'AML_APPROVED');
 
       const agentOutput = await withRetry(
         () => runAmlAgent(ctx),
@@ -256,6 +259,7 @@ export function initOrchestrator() {
       const event: OnboardingEvent = final === "APPROVE" ? 'AML_APPROVED' : 'AML_REJECTED';
       const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
+      logStateTransition(traceId, stateMachine.currentState, updatedMachine.currentState, event);
 
       eventBus.publish("onboarding.aml_complete", {
         agentOutput,
@@ -266,10 +270,11 @@ export function initOrchestrator() {
 
       // Trigger next step based on AML result
       if (final === "APPROVE") {
-        logStateTransition(traceId, 'AML_COMPLETED', 'CREDIT_STARTED', 'START');
-        eventBus.publish("onboarding.credit", { ...ctx, stateMachine: updatedMachine }, traceId);
+        const nextMachine = transitionState(updatedMachine, 'START', {});
+        logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
+        stateMachines.set(traceId, nextMachine);
+        eventBus.publish("onboarding.credit", { ...ctx, stateMachine: nextMachine }, traceId);
       } else {
-        logStateTransition(traceId, 'AML_COMPLETED', 'COMPLETED', 'AML_REJECTED');
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
     } catch (error) {
@@ -323,8 +328,10 @@ export function initOrchestrator() {
 
       // Trigger next step based on credit check result
       if (final === "APPROVE") {
-        logStateTransition(traceId, 'CREDIT_COMPLETED', 'RISK_STARTED', 'START');
-        eventBus.publish("onboarding.risk", { ...ctx, stateMachine: updatedMachine }, traceId);
+        const nextMachine = transitionState(updatedMachine, 'START', {});
+        logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
+        stateMachines.set(traceId, nextMachine);
+        eventBus.publish("onboarding.risk", { ...ctx, stateMachine: nextMachine }, traceId);
       } else {
         logStateTransition(traceId, 'CREDIT_COMPLETED', 'COMPLETED', 'CREDIT_REJECTED');
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
@@ -398,7 +405,9 @@ export function initOrchestrator() {
     try {
       const stateMachine = stateMachines.get(traceId);
       if (stateMachine) {
-        logStateTransition(traceId, stateMachine.currentState, 'COMPLETED', 'COMPLETE', data);
+        if (stateMachine.currentState !== 'COMPLETED') {
+          logStateTransition(traceId, stateMachine.currentState, 'COMPLETED', 'COMPLETE', data);
+        }
         // Clean up the state machine after completion
         stateMachines.delete(traceId);
       }

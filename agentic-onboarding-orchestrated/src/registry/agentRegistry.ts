@@ -1,19 +1,14 @@
 // src/registry/agentRegistry.ts
+import "../bootstrap/loadEnv";
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { SlotName } from "../types/types";
+import { LlmProfileConfig, RunnableAgentConfig } from "../composable/types";
 
+export type AgentType = "http" | "local" | "langchain" | "langgraph";
 
-export type AgentType = "http" | "local";
-
-export interface AgentConfig {
- agentId: string;  // Add this line
-  type: AgentType;
-  endpoint: string;
-  timeout_ms: number;
-  enabled: boolean;
-}
+export interface AgentConfig extends RunnableAgentConfig {}
 
 export interface SlotConfig {
   active: string;
@@ -22,6 +17,33 @@ export interface SlotConfig {
 
 export interface AgentsConfig {
   [slot: string]: SlotConfig;
+}
+
+export interface AgentRegistryFile {
+  agents: AgentsConfig;
+  llm_profiles?: Record<string, LlmProfileConfig>;
+}
+
+function resolveEnvPlaceholders<T>(value: T): T {
+  if (typeof value === "string") {
+    const match = value.match(/^\$\{([A-Z0-9_]+)\}$/i);
+    if (!match) return value;
+    return (process.env[match[1]] ?? value) as unknown as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveEnvPlaceholders(item)) as unknown as T;
+  }
+
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = resolveEnvPlaceholders(raw);
+    }
+    return out as T;
+  }
+
+  return value;
 }
 
 // const agentConfigs: Record<string, AgentConfig> = {
@@ -67,16 +89,26 @@ export function registerAgentEndpoints(app: any, agent: any) {
 }
 
 let agentsConfig: AgentsConfig | null = null;
+let registryConfig: AgentRegistryFile | null = null;
 
 export function loadAgentsConfig(configPath?: string): AgentsConfig {
   if (agentsConfig) return agentsConfig;
 
   try {
-    const configFile = configPath || path.join(process.cwd(), 'config', 'agents.yaml');
+    const configFile =
+      configPath ||
+      process.env.AGENTS_CONFIG_PATH ||
+      path.join(process.cwd(), "config", "agents.yaml");
     const fileContents = fs.readFileSync(configFile, 'utf8');
-    const yamlContent = yaml.load(fileContents) as any;
+    const yamlContent = resolveEnvPlaceholders(yaml.load(fileContents) as any);
 
-    agentsConfig = yamlContent.agents || yamlContent;
+    if (yamlContent && yamlContent.agents) {
+      registryConfig = yamlContent as AgentRegistryFile;
+      agentsConfig = registryConfig.agents;
+    } else {
+      agentsConfig = yamlContent;
+      registryConfig = { agents: agentsConfig as AgentsConfig, llm_profiles: {} };
+    }
 
     if (!agentsConfig || typeof agentsConfig !== 'object') {
       throw new Error('Invalid agents configuration');
@@ -104,4 +136,16 @@ export function getActiveAgents(): Record<string, { agentId: string; config: Age
   }
 
   return activeAgents;
+}
+
+export function getLlmProfile(profileName: string): LlmProfileConfig | null {
+  if (!agentsConfig) {
+    loadAgentsConfig();
+  }
+
+  if (!registryConfig?.llm_profiles) {
+    return null;
+  }
+
+  return registryConfig.llm_profiles[profileName] || null;
 }

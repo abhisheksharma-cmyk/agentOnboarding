@@ -1,10 +1,10 @@
 import { AgentContext } from "../types/types";
-import { getAgentConfig } from "../registry/agentRegistry";
-import { callHttpAgent } from "../utils/httpHelper";
 import { Agent, UserInput, AgentResponse } from '../types/agent.types';
 import { DocumentService } from '../services/documentService';
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
+import { runConfiguredAgent } from "../composable/runConfiguredAgent";
+import { AgentOutput } from "../types/types";
 
 
 // Configure multer for file uploads
@@ -129,35 +129,22 @@ Object.defineProperty(kycAgent, 'endpoints', {
  * KYC agent wrapper.
  * In production, this might call an external KYC LLM agent or vendor adapter.
  */
-export async function runKycAgent(ctx: AgentContext): Promise<AgentResponse> {
-  const agentInfo = getAgentConfig("KYC");
-  if (!agentInfo) {
-    throw new Error('No KYC agent configuration found');
-  }
-  const { agentId, config } = agentInfo;
-  if (config.type === "http") {
-    // Ensure documentType from context is passed in the payload
-    const kycContext = {
-      ...ctx,
-      payload: {
-        ...ctx.payload,
-        documentType: ctx.payload?.documentType || 'unknown' // Ensure documentType is present
-      }
-    };
-    const out = await callHttpAgent(config.endpoint, kycContext, config.timeout_ms);
-    out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
-    return out;
-  }
+export async function runKycAgent(ctx: AgentContext): Promise<AgentOutput> {
+  // Ensure documentType is always present for downstream prompt/templates.
+  const kycContext: AgentContext = {
+    ...ctx,
+    payload: {
+      ...ctx.payload,
+      documentType: ctx.payload?.documentType || "unknown",
+    },
+  };
 
-  // Fallback local behavior
-  return {
-    success: false,
-    message: "KYC local fallback - no HTTP agent configured",
+  return runConfiguredAgent("KYC", kycContext, async () => ({
     proposal: "escalate",
     confidence: 0.5,
-    reasons: ["KYC local fallback - no HTTP agent configured"],
+    reasons: ["KYC local fallback - manual review required"],
     policy_refs: [],
     flags: { missing_data: true },
-    metadata: { agent_name: "kyc_local_fallback", slot: "KYC" }
-  };
+    metadata: { agent_name: "kyc_local_fallback", slot: "KYC" },
+  }));
 }

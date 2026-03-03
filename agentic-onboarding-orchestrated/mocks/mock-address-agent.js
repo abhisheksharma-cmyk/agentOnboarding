@@ -42,12 +42,30 @@ app.use((req, res, next) => {
 });
 
 // Input validation middleware
+function isValidPostalCodeByCountry(postalCode, country) {
+    const c = (country || '').toString().trim().toUpperCase();
+    const code = (postalCode || '').toString().trim();
+
+    // India PIN code
+    if (c === 'IN' || c === 'INDIA') {
+        return /^\d{6}$/.test(code);
+    }
+
+    // Default to US-style ZIP format for existing behavior
+    return /^\d{5}(-\d{4})?$/.test(code);
+}
+
 const validateAddress = [
     body('line1').trim().notEmpty().withMessage('Street address is required'),
     body('city').trim().notEmpty().withMessage('City is required'),
     body('state').trim().notEmpty().withMessage('State is required'),
     body('postalCode').trim().notEmpty().withMessage('ZIP code is required')
-        .matches(/^\d{5}(-\d{4})?$/).withMessage('Invalid ZIP code format'),
+        .custom((value, { req }) => {
+            if (!isValidPostalCodeByCountry(value, req.body.country)) {
+                throw new Error('Invalid postal code format for country');
+            }
+            return true;
+        }),
     body('country').trim().notEmpty().withMessage('Country is required'),
     (req, res, next) => {
         const errors = validationResult(req);
@@ -68,7 +86,13 @@ const validateAddress = [
 const MOCK_ADDRESS_DB = {
     '123 Main St': { city: 'New York', state: 'NY', postalCode: '10001', country: 'USA' },
     '456 Oak Ave': { city: 'Los Angeles', state: 'CA', postalCode: '90001', country: 'USA' },
-    '789 Pine Rd': { city: 'Chicago', state: 'IL', postalCode: '60601', country: 'USA' }
+    '789 Pine Rd': { city: 'Chicago', state: 'IL', postalCode: '60601', country: 'USA' },
+    '163, maitri Appts, Plot no 28, IP extn': {
+        city: 'New Delhi',
+        state: 'Delhi',
+        postalCode: '110092',
+        country: 'IN'
+    }
 };
 
 /**
@@ -132,8 +156,14 @@ app.post('/verify-address', validateAddress, async (req, res) => {
         };
 
         // Check if the address looks valid
-        const isLikelyValid = postalCode.match(/^\d{5}(-\d{4})?$/) &&
-            state.match(/^[A-Z]{2}$/) &&
+        const countryCode = (country || '').toString().trim().toUpperCase();
+        const validPostalByCountry = isValidPostalCodeByCountry(postalCode, countryCode);
+        const validStateByCountry = (countryCode === 'IN' || countryCode === 'INDIA')
+            ? state.trim().length >= 2
+            : state.match(/^[A-Z]{2}$/);
+
+        const isLikelyValid = validPostalByCountry &&
+            validStateByCountry &&
             line1.length > 5;
 
         res.json({

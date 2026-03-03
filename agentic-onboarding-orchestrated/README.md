@@ -1,122 +1,88 @@
 # Agentic Onboarding Orchestrated
 
-Express-based reference app that orchestrates multiple underwriting agents (KYC/AML/Credit/Risk) and exposes onboarding endpoints with audit tracing.
+Express + TypeScript onboarding orchestrator for KYC/AML/CREDIT/RISK decisions.
+
+## What changed
+The runtime is now composable and config-driven per slot:
+- `http`: call external agent APIs
+- `local`: in-process fallback logic
+- `langgraph`: prompt/model execution via LangGraph
+
+This follows a provider + registry + DI-style pattern from the composable framework guidance so client tool stacks can be swapped by config instead of code rewrites.
 
 ## Prerequisites
-- Node.js 18+ and npm
-- A `GROQ_API_KEY` in `.env` if you run agents that call Groq-backed models (see `.env`).
+- Node.js 18+
+- npm
 
 ## Setup
-1) Install dependencies:
 ```bash
 npm install
 ```
-2) Add env vars (copy `.env` and fill values as needed):
-```bash
-cp .env .env.local   # optional, or edit .env directly
-```
+
+The app auto-loads `.env` and `.env.local` from the project root at startup.
 
 ## Run
-- Development (TS, watchless):
 ```bash
 npm run dev
 ```
-- Build TypeScript to `dist`:
+
+Build:
 ```bash
 npm run build
 ```
-- Start compiled server:
+
+## Config-driven client profiles
+Default:
+- `config/agents.yaml`
+
+Examples:
+- `config/agents.aws.yaml`
+- `config/agents.azure.yaml`
+- `config/agents.onprem.yaml`
+
+Switch profile at runtime:
 ```bash
-npm start
+# PowerShell
+$env:AGENTS_CONFIG_PATH="config/agents.azure.yaml"
+npm run dev
 ```
-The server defaults to `http://localhost:4000` (override with `PORT`).
 
-## API (happy-path demo)
-- `GET /` � health/status.
-- `POST /onboarding/start` � kicks off full onboarding flow; returns `traceId` plus result/audit after a short delay.
-- `GET /onboarding/trace/:traceId` � fetches status/result/audit by trace id.
-- `POST /test/kyc` | `/test/aml` | `/test/credit` | `/test/risk` � run a single agent and return its decision plus the decision gateway result.
+## Config structure
+- `llm_profiles`: reusable model/provider credentials and defaults.
+- `agents.<slot>.active`: active version for each slot.
+- `agents.<slot>.versions.<version>.type`: `http | local | langgraph`.
+- `agents.<slot>.versions.<version>.langgraph`: prompt + llm profile reference.
 
-## Project layout
-- `src/index.ts` � Express entrypoint and routes
-- `src/workflows` � onboarding workflow wiring
-- `src/agents` � mock agent implementations
-- `src/decisionGateway` � combines agent outputs into final decisions
-- `src/auditTracking` � trace/audit utilities
+## API
+- `GET /`
+- `POST /onboarding/start`
+- `GET /onboarding/trace/:traceId`
+- `POST /test/kyc`
+- `POST /test/aml`
+- `POST /test/credit`
+- `POST /test/risk`
 
-## Notes
-- Formatting on save is enabled via `.vscode/settings.json`.
-- TypeScript config outputs to `dist` (`npm run build` required before `npm start`).
+## Live demo: credit approve + deny (two users)
+Use the demo config so CREDIT runs deterministic local policy logic:
 
+```powershell
+$env:AGENTS_CONFIG_PATH="config/agents.demo.yaml"
+npm run dev
+```
 
-next steps - 
-1) enable document passing to the agent and giving it the ability to scan it and respond on it
-2) UI intigeration 
-3) refine the agentic responses to meet the contract and acheive good and satisfactory processing and outcome overall 
+In another terminal:
 
-4) create a top level card application service, that would record and keep track of all the applications 
-5) enable User enrolment workflow and database so user can retrieve the draft level application and its status 
-6) integrate with DB record keeping and caching mechanisms
-7) create a screen for human under writer, with all documents visible to him, for happy path and non happy path workflows
+```bash
+npm run demo:credit:calls
+```
 
-8) add api integration for agents for credit query cibil api and kyc aadhar api 
+The script sends two separate calls to `POST /test/credit`:
+- `CUS_DEMO_001` -> expected `APPROVE`
+- `CUS_DEMO_002` -> expected `DENY`
 
-calling credit 2 agent
-
-curl -X POST http://localhost:5007/agents/credit2/decide   -H "Content-Type: application/json"   -d '{
-    "input": {
-      "context": {
-        "payload": {
-          "applicant": {
-            "monthly_income": 60000,
-            "monthly_liabilities": 8000,
-            "cibil_score": 710
-          },
-          "credit": {
-            "requested_amount": 800000,
-            "tenure_months": 60,
-            "annual_rate": 0.15
-          }
-        }
-      }
-    }
-  }'
-
-output:
-{"proposal":"approve","confidence":0.8,"reasons":["Income is reasonable","CIBIL score is good","Requested amount is within eligible limits"],"policy_refs":["FOIR 55%"],"flags":{"missing_data":false,"contradictory_signals":false},"max_eligible_amount":1200000,"metadata":{"agent_name":"mock_credit2_http","slot":"CREDIT","version":"2.0.0"}}
-
-calling aml2 agent :
-curl -X POST http://localhost:5006/agents/aml2/decide \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "context": {
-        "payload": {
-          "applicant": { "name": "Jane Doe", "country": "IN", "residencyCountry": "IN", "pepStatus": "none" },
-          "documents": [ { "type": "passport", "looks_authentic": true } ],
-          "signals": { "watchlist_hit": false, "monthly_cash_volume": 5000 }
-        }
-      }
-    }
-  }'
-
-
-calling kyc2 agent:
-curl -X POST http://localhost:5005/agents/kyc2/decide \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "context": {
-        "payload": {
-          "applicant": { "name": "Prakash Ranjan", "dob": "1994-07-05", "gender": "male" },
-          "documents": [
-            { "type": "aadhaar", "number": "918300746619", "name": "Prakash Ranjan", "dob": "05/07/1994", "gender": "male" },
-            { "type": "pan", "number": "ABCDE1234F", "name": "Sample Name", "dob": "01/01/1990" }
-          ]
-        }
-      }
-    }
-  }'
-
-
-
+## Key folders
+- `src/agents`: slot wrappers (KYC/AML/CREDIT/RISK/ADDRESS)
+- `src/composable`: provider registry + LangGraph executor + generic runtime
+- `src/orchestrator`: event-driven workflow
+- `src/decisionGateway`: final decision logic
+- `config`: slot/provider config profiles

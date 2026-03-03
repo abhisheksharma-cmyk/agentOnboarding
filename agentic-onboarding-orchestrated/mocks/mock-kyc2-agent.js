@@ -57,6 +57,44 @@ function namesMatch(a, b) {
   return normalize(a) === normalize(b);
 }
 
+function tokenizeName(name) {
+  return normalize(name)
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function isInitialToken(token) {
+  return /^[a-z]$/.test(token);
+}
+
+function getNameMatchType(docName, applicantName) {
+  if (!docName || !applicantName) return "unknown";
+  if (namesMatch(docName, applicantName)) return "exact";
+
+  const docTokens = tokenizeName(docName);
+  const applicantTokens = tokenizeName(applicantName);
+
+  if (!docTokens.length || !applicantTokens.length) return "mismatch";
+  if (docTokens.length !== applicantTokens.length) return "mismatch";
+
+  let usedInitials = false;
+
+  for (let i = 0; i < docTokens.length; i++) {
+    const dt = docTokens[i];
+    const at = applicantTokens[i];
+
+    if (dt === at) continue;
+    if (isInitialToken(dt) && at.startsWith(dt)) {
+      usedInitials = true;
+      continue;
+    }
+    return "mismatch";
+  }
+
+  return usedInitials ? "initials" : "mismatch";
+}
+
 function aadhaarLooksValid(num) {
   if (!AADHAAR_REGEX.test(num)) return false;
   if (/(.)\1{11}/.test(num)) return false; // reject same-digit repeats
@@ -100,7 +138,7 @@ If unknown, return "" for strings and [] for arrays.`;
   }
 }
 
-function evaluateDocument(doc, applicant) {
+function evaluateDocument(doc, applicant, riskTolerance = "medium") {
   const type = normalize(doc.type);
   const number = (doc.number || doc.id || "").toString().trim();
   const docName = doc.name || doc.holder || doc.fullName || "";
@@ -114,18 +152,41 @@ function evaluateDocument(doc, applicant) {
     reasons: [],
     suspicious: false,
     missingData: false,
+    policyConflict: false,
+    nameMatchType: "unknown",
   };
 
   const applicantName = applicant?.name || applicant?.fullName || "";
   const applicantDob = applicant?.dob || applicant?.dateOfBirth || "";
   const applicantGender = applicant?.gender || applicant?.sex || "";
 
-  const nameMatches = namesMatch(docName, applicantName);
+  const nameMatchType = getNameMatchType(docName, applicantName);
+  result.nameMatchType = nameMatchType;
   const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantDob);
   const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantGender);
 
   const applyMatches = () => {
-    if (nameMatches) result.score += 0.2;
+    if (nameMatchType === "exact") {
+      result.score += 0.2;
+    } else if (nameMatchType === "initials") {
+      if (riskTolerance === "high") {
+        result.score += 0.15;
+        result.reasons.push("Name matched by initials (high risk tolerance)");
+      } else if (riskTolerance === "low") {
+        result.reasons.push("Name only matches by initials (low risk tolerance)");
+        result.policyConflict = true;
+        result.suspicious = true;
+      } else {
+        result.reasons.push("Name only matches by initials");
+        result.suspicious = true;
+      }
+    } else if (nameMatchType === "mismatch") {
+      result.reasons.push("Name mismatch between applicant and document");
+      if (riskTolerance === "low") {
+        result.policyConflict = true;
+      }
+      result.suspicious = true;
+    }
     if (dobMatches) result.score += 0.1;
     if (genderMatches) result.score += 0.05;
   };
@@ -177,6 +238,7 @@ function evaluateDocument(doc, applicant) {
 }
 
 function buildDecision({ applicant, documents }) {
+  const riskTolerance = normalize(applicant?.risk_tolerance || applicant?.riskTolerance || "medium");
   const reasons = [];
   const policyRefs = new Set();
   let missingData = false;
@@ -184,9 +246,10 @@ function buildDecision({ applicant, documents }) {
   let contradictory = false;
 
   const docResults = documents.map((doc) => {
-    const res = evaluateDocument(doc, applicant);
+    const res = evaluateDocument(doc, applicant, riskTolerance);
     res.policyRefs.forEach((p) => policyRefs.add(p));
     if (res.missingData) missingData = true;
+    if (res.policyConflict) policyConflict = true;
     if (res.suspicious) contradictory = true;
     reasons.push(...res.reasons);
     return res;
@@ -201,15 +264,23 @@ function buildDecision({ applicant, documents }) {
   const hasStrong = bestScore >= 0.75;
   const hasSuspicious = docResults.some((r) => r.suspicious);
   const hasMinimal = documents.length > 0 && bestScore >= 0.35;
+  const hasInitialsOnly = docResults.some((r) => r.nameMatchType === "initials");
 
   let proposal = "escalate";
-  if (hasStrong && !hasSuspicious) {
+  if (riskTolerance === "low" && (policyConflict || hasSuspicious)) {
+    proposal = "deny";
+  } else if (hasStrong && !hasSuspicious) {
+    proposal = "approve";
+  } else if (riskTolerance === "high" && hasInitialsOnly && !hasSuspicious) {
     proposal = "approve";
   } else if (!hasMinimal || hasSuspicious) {
     proposal = "escalate";
   }
 
-  const confidence = Math.max(0.35, Math.min(0.9, hasStrong ? bestScore : bestScore - 0.1));
+  let confidence = Math.max(0.35, Math.min(0.9, hasStrong ? bestScore : bestScore - 0.1));
+  if (proposal === "deny" && confidence < 0.85) confidence = 0.85;
+  if (riskTolerance === "high" && proposal === "approve" && confidence < 0.82) confidence = 0.82;
+  if (riskTolerance === "low" && proposal === "escalate" && confidence > 0.7) confidence = 0.7;
 
   return {
     proposal,
@@ -235,7 +306,11 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   console.log("[KYC2] Request body:", JSON.stringify(req.body, null, 2));
   
   const payload = req.body?.input?.context?.payload || {};
-  const applicant = payload.applicant || {};
+  const riskTolerance = normalize(payload?.risk_tolerance || payload?.riskTolerance || "medium");
+  const applicant = {
+    ...(payload.applicant || {}),
+    risk_tolerance: riskTolerance
+  };
   const documents = payload.documents || payload.docs || [];
   const documentType = payload.documentType || documents[0]?.type || 'unknown';
 
@@ -345,7 +420,7 @@ app.post("/agents/kyc2/decide", async (req, res) => {
     decision.reasons = [...allValidationErrors, ...decision.reasons];
   }
   
-  if (hasInvalidDocs) {
+  if (hasInvalidDocs && decision.proposal !== 'deny') {
     decision.proposal = 'escalate';
     decision.confidence = Math.min(decision.confidence, 0.5);
     decision.flags.missing_data = true;
@@ -359,6 +434,7 @@ app.post("/agents/kyc2/decide", async (req, res) => {
   decision.metadata = {
     ...decision.metadata,
     documentType: documentType,
+    riskTolerance: riskTolerance,
     validationResults: validationResults.map(r => ({
       type: r.type,
       isValid: r.validation?.isValid,

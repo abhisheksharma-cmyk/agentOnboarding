@@ -1,4 +1,5 @@
 
+import "./bootstrap/loadEnv";
 import express from "express";
 import cors from 'cors';
 import fs from 'fs';
@@ -42,10 +43,10 @@ if (kycAgent && 'endpoints' in kycAgent && Array.isArray(kycAgent.endpoints)) {
   kycAgent.endpoints.forEach((endpoint: { method: string; path: string; handler: any }) => {
     const method = endpoint.method.toLowerCase();
     if (['get', 'post', 'put', 'delete', 'patch'].includes(method)) {
-      const handlers = Array.isArray(endpoint.handler) 
-        ? endpoint.handler 
+      const handlers = Array.isArray(endpoint.handler)
+        ? endpoint.handler
         : [endpoint.handler];
-      
+
       (app as any)[method](endpoint.path, ...handlers);
     }
   });
@@ -413,19 +414,44 @@ app.post('/onboarding/verify-address', async (req, res) => {
  */
 app.post("/onboarding/start", async (req, res) => {
   const traceId = generateTraceId();
+  const body = req.body ?? {};
+
+  const payload = (() => {
+    if (typeof body.payload === "string") {
+      try {
+        return JSON.parse(body.payload);
+      } catch {
+        return {};
+      }
+    }
+    return body.payload ?? {};
+  })();
 
   // Extract document type from payload if available
-  const documentType = req.body.documentType || req.body.payload?.documentType || null;
-  
+  const documentType = body.documentType || payload.documentType || null;
+  const normalizedAddress =
+    payload.address ||
+    payload.applicant?.address ||
+    body.address ||
+    body.applicant?.address ||
+    null;
+
+  const normalizedApplicant = {
+    ...(payload.applicant || {}),
+    ...(body.applicant || {}),
+    ...(normalizedAddress ? { address: normalizedAddress } : {}),
+  };
+
   const ctx: AgentContext = {
-    customerId: req.body.customerId || "cus_demo",
-    applicationId: req.body.applicationId || "ca_demo",
+    customerId: body.customerId || "cus_demo",
+    applicationId: body.applicationId || "ca_demo",
     slot: "KYC",
     payload: {
-      ...(req.body.payload || {}),
+      ...payload,
       documentType: documentType, // Ensure documentType is in payload
-      documents: req.body.payload?.documents || [],
-      applicant: req.body.payload?.applicant || {}
+      documents: payload.documents || [],
+      applicant: normalizedApplicant,
+      ...(normalizedAddress ? { address: normalizedAddress } : {})
     },
   };
 
@@ -451,10 +477,10 @@ app.get("/onboarding/trace/:traceId", (req, res) => {
   const traceId = req.params.traceId;
   const result = runResults[traceId] || null;
   const auditTrail = getTrace(traceId);
-  
+
   // Extract final decision from result for easier access
   const finalDecision = result?.final || result?.data?.final || null;
-  
+
   res.json({
     traceId,
     status: result ? "completed" : "pending",

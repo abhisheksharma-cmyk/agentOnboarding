@@ -213,16 +213,54 @@ function extractAddressFromContext(context: AgentContext): Record<string, any> |
             console.log('No payload in context');
             return null;
         }
-        const { payload } = context;
+        const payload = context.payload || {};
+        const nestedPayload =
+            payload.payload && typeof payload.payload === 'object' ? payload.payload : {};
+
         console.log('Payload content:', JSON.stringify(payload, null, 2));
-        // Extract address from different possible locations in the payload
-        const address = payload.address || payload.line1 ? {
-            line1: payload.line1 || payload.address,
-            city: payload.city,
-            state: payload.state,
-            postalCode: payload.postalCode || payload.zip,
-            country: payload.country
-        } : null;
+
+        const objectAddressCandidate =
+            (payload.address && typeof payload.address === 'object' ? payload.address : null) ||
+            (nestedPayload.address && typeof nestedPayload.address === 'object'
+                ? nestedPayload.address
+                : null) ||
+            (payload.applicant?.address && typeof payload.applicant.address === 'object'
+                ? payload.applicant.address
+                : null) ||
+            (nestedPayload.applicant?.address &&
+                typeof nestedPayload.applicant.address === 'object'
+                ? nestedPayload.applicant.address
+                : null);
+
+        const candidate = objectAddressCandidate || nestedPayload || payload;
+
+        const line1 =
+            candidate?.line1 ||
+            candidate?.addressLine1 ||
+            candidate?.street ||
+            candidate?.street1 ||
+            payload?.line1 ||
+            nestedPayload?.line1 ||
+            (typeof payload.address === 'string' ? payload.address : undefined) ||
+            (typeof nestedPayload.address === 'string' ? nestedPayload.address : undefined) ||
+            '';
+
+        const address = line1
+            ? {
+                line1,
+                city: candidate?.city || payload?.city || nestedPayload?.city || '',
+                state: candidate?.state || payload?.state || nestedPayload?.state || '',
+                postalCode:
+                    candidate?.postalCode ||
+                    candidate?.zip ||
+                    candidate?.zipCode ||
+                    payload?.postalCode ||
+                    nestedPayload?.postalCode ||
+                    '',
+                country: candidate?.country || payload?.country || nestedPayload?.country || 'US'
+            }
+            : null;
+
         console.log('Extracted address:', JSON.stringify(address, null, 2));
         return address;
     } catch (error: unknown) {
@@ -233,7 +271,7 @@ function extractAddressFromContext(context: AgentContext): Record<string, any> |
             error: errorMessage,
             stack: errorStack
         });
-        return {};
+        return null;
     }
 }
 
@@ -257,10 +295,14 @@ function mapAddressVerificationResponse(
     // Handle both the mock response format and the actual service response format
     const isVerified = data.verified === true ||
         data.verificationStatus === 'valid' ||
-        data.standardized === true;
+        data.standardized === true ||
+        data.is_valid === true ||
+        data.success === true ||
+        data.flags?.is_standardized === true ||
+        !!data.verified_address;
 
     // Extract confidence score with a default
-    const confidence = data.confidence ||
+    const confidence = (typeof data.confidence === 'number' ? data.confidence : undefined) ||
         (data.flags && data.flags.verification_score) ||
         (isVerified ? 0.9 : 0.1);
 
@@ -268,6 +310,8 @@ function mapAddressVerificationResponse(
     let reasons: string[] = [];
     if (data.reasons && Array.isArray(data.reasons)) {
         reasons = data.reasons;
+    } else if (data.messages && Array.isArray(data.messages)) {
+        reasons = data.messages;
     } else if (data.issues && Array.isArray(data.issues)) {
         reasons = data.issues;
     } else if (data.message) {
@@ -292,7 +336,10 @@ function mapAddressVerificationResponse(
             slot,
             request_id: requestId,
             verification_timestamp: new Date().toISOString(),
-            verificationMethod: (data.metadata && data.metadata.verificationMethod) || 'standard'
+            verificationMethod:
+                (data.metadata && (data.metadata.verificationMethod || data.metadata.verification_method)) ||
+                'standard',
+            verified_address: data.verified_address || null
         }
     };
 }

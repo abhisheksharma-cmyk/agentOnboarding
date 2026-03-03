@@ -3,6 +3,58 @@ const fetch = require("node-fetch");
 const DEFAULT_TIMEOUT_MS = Number(process.env.GROQ_TIMEOUT_MS || 10000);
 const DEFAULT_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 
+function safeJsonParseFromModelContent(content) {
+  const raw = (content || "").trim();
+  if (!raw) {
+    return {};
+  }
+
+  const candidates = [];
+
+  // 1) Raw content
+  candidates.push(raw);
+
+  // 2) Markdown fenced block: ```json ... ```
+  const fencedMatch = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fencedMatch && fencedMatch[1]) {
+    candidates.push(fencedMatch[1].trim());
+  }
+
+  // 3) Strip any fence tokens even if partially wrapped
+  candidates.push(
+    raw
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim()
+  );
+
+  // 4) Extract first JSON object/array substring from verbose text
+  const firstObj = raw.indexOf("{");
+  const lastObj = raw.lastIndexOf("}");
+  if (firstObj !== -1 && lastObj !== -1 && lastObj > firstObj) {
+    candidates.push(raw.slice(firstObj, lastObj + 1).trim());
+  }
+
+  const firstArr = raw.indexOf("[");
+  const lastArr = raw.lastIndexOf("]");
+  if (firstArr !== -1 && lastArr !== -1 && lastArr > firstArr) {
+    candidates.push(raw.slice(firstArr, lastArr + 1).trim());
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      return JSON.parse(candidate);
+    } catch (_err) {
+      // Continue trying next candidate
+    }
+  }
+
+  throw new Error("Model returned non-JSON content");
+}
+
 async function callGroq(systemPrompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   console.log("[Groq Client] callGroq called");
   const apiKey = process.env.GROQ_API_KEY;
@@ -53,7 +105,7 @@ async function callGroq(systemPrompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     console.log("[Groq Client] Content preview:", content.substring(0, 200));
 
     try {
-      const parsed = JSON.parse(content);
+      const parsed = safeJsonParseFromModelContent(content);
       console.log("[Groq Client] Successfully parsed JSON response");
       return parsed;
     } catch (err) {

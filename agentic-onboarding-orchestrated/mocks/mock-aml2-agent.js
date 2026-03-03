@@ -105,8 +105,27 @@ function mergeDecision({ groqOut, localSignals }) {
   if (groqOut?.flags?.provider_high_risk) providerHighRisk = true;
   if (groqOut?.flags?.contradictory_signals) contradictory = true;
 
+  const hasGroqDecision = !!groqOut && typeof groqOut === "object";
   let proposal = groqOut?.proposal || "escalate";
   let confidence = typeof groqOut?.confidence === "number" ? groqOut.confidence : 0.6;
+
+  // Deterministic local fallback for demo flow:
+  // if no high-risk AML signals are found and LLM output is unavailable,
+  // return APPROVE with strong confidence instead of ESCALATE.
+  if (!hasGroqDecision) {
+    if (!providerHighRisk && !contradictory) {
+      proposal = "approve";
+      confidence = 0.86;
+      reasons.push("No AML risk signals detected by local rules");
+      policyRefs.add("POLICY-AML-LOCAL-LOWRISK-01");
+    } else if (providerHighRisk) {
+      proposal = "deny";
+      confidence = 0.9;
+    } else {
+      proposal = "escalate";
+      confidence = 0.75;
+    }
+  }
 
   if (providerHighRisk && proposal === "approve") {
     proposal = "deny";
