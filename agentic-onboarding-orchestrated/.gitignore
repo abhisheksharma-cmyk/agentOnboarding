@@ -14,3 +14,7 @@ agentic-onboarding-orchestrated/dist/types/types.js
 agentic-onboarding-orchestrated/dist/utils/httpHelper.js
 agentic-onboarding-orchestrated/dist/workflows/onboardingWorkflow.js
 dist*
+.env 
+temp
+tmp
+documents

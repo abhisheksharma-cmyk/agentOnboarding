@@ -1,4 +1,4 @@
 @echo off
 cd /d %~dp0
-node mocks/mock-kyc2-agent.js
+node agent-services/kyc-agent-service-v2.js
 

@@ -7,10 +7,31 @@ exports.getAgentConfig = getAgentConfig;
 exports.registerAgentEndpoints = registerAgentEndpoints;
 exports.loadAgentsConfig = loadAgentsConfig;
 exports.getActiveAgents = getActiveAgents;
+exports.getLlmProfile = getLlmProfile;
 // src/registry/agentRegistry.ts
+require("../bootstrap/loadEnv");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const js_yaml_1 = __importDefault(require("js-yaml"));
+function resolveEnvPlaceholders(value) {
+    if (typeof value === "string") {
+        const match = value.match(/^\$\{([A-Z0-9_]+)\}$/i);
+        if (!match)
+            return value;
+        return (process.env[match[1]] ?? value);
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => resolveEnvPlaceholders(item));
+    }
+    if (value && typeof value === "object") {
+        const out = {};
+        for (const [key, raw] of Object.entries(value)) {
+            out[key] = resolveEnvPlaceholders(raw);
+        }
+        return out;
+    }
+    return value;
+}
 // const agentConfigs: Record<string, AgentConfig> = {
 //   KYC: {
 //     agentId: 'kyc-verification',  // Add a unique identifier for this agent
@@ -48,14 +69,24 @@ function registerAgentEndpoints(app, agent) {
     });
 }
 let agentsConfig = null;
+let registryConfig = null;
 function loadAgentsConfig(configPath) {
     if (agentsConfig)
         return agentsConfig;
     try {
-        const configFile = configPath || path_1.default.join(process.cwd(), 'config', 'agents.yaml');
+        const configFile = configPath ||
+            process.env.AGENTS_CONFIG_PATH ||
+            path_1.default.join(process.cwd(), "config", "agents.yaml");
         const fileContents = fs_1.default.readFileSync(configFile, 'utf8');
-        const yamlContent = js_yaml_1.default.load(fileContents);
-        agentsConfig = yamlContent.agents || yamlContent;
+        const yamlContent = resolveEnvPlaceholders(js_yaml_1.default.load(fileContents));
+        if (yamlContent && yamlContent.agents) {
+            registryConfig = yamlContent;
+            agentsConfig = registryConfig.agents;
+        }
+        else {
+            agentsConfig = yamlContent;
+            registryConfig = { agents: agentsConfig, llm_profiles: {} };
+        }
         if (!agentsConfig || typeof agentsConfig !== 'object') {
             throw new Error('Invalid agents configuration');
         }
@@ -79,4 +110,12 @@ function getActiveAgents() {
     }
     return activeAgents;
 }
-//# sourceMappingURL=agentRegistry.js.map
+function getLlmProfile(profileName) {
+    if (!agentsConfig) {
+        loadAgentsConfig();
+    }
+    if (!registryConfig?.llm_profiles) {
+        return null;
+    }
+    return registryConfig.llm_profiles[profileName] || null;
+}

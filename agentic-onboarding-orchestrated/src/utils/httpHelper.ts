@@ -9,14 +9,14 @@ export async function callHttpAgent(
   console.log("[HTTP Helper] Endpoint:", endpoint);
   console.log("[HTTP Helper] Context:", JSON.stringify(ctx, null, 2));
   console.log("[HTTP Helper] Timeout:", timeoutMs, "ms");
-  
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // Determine request body based on endpoint
     let requestBody: any;
-    
+
     if (endpoint.includes('/kyc') || endpoint.includes('/aml') || endpoint.includes('/credit')) {
       // For KYC/AML/Credit agents, send the full context in the expected format
       requestBody = {
@@ -46,7 +46,7 @@ export async function callHttpAgent(
           ? payload.applicant.address
           : null) ||
         (nestedPayload.applicant?.address &&
-        typeof nestedPayload.applicant.address === 'object'
+          typeof nestedPayload.applicant.address === 'object'
           ? nestedPayload.applicant.address
           : null);
 
@@ -70,7 +70,7 @@ export async function callHttpAgent(
           payload?.postalCode ||
           nestedPayload?.postalCode ||
           "",
-        country: source?.country || payload?.country || nestedPayload?.country || "US"
+        country: source?.country || payload?.country || nestedPayload?.country || ""
       };
 
       const isOnboardingAddressEndpoint = endpoint.includes("/onboarding/verify-address");

@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn src/index.ts",
+    "dev": "ts-node --project tsconfig.json src/index.ts",
     "run:kyc": "node ./node_modules/ts-node/dist/bin.js src/agents/kycAgent.ts",
     "mock:address": "node mocks/mock-address-agent.js",
-    "mock:kyc2": "node mocks/mock-kyc2-agent.js",
-    "mock:aml2": "node mocks/mock-aml2-agent.js",
-    "mock:credit2": "node mocks/mock-credit2-agent.js",
+    "mock:kyc2": "node agent-services/kyc-agent-service-v2.js",
+    "mock:aml2": "node agent-services/aml-agent-service-v2.js",
+    "mock:credit2": "node agent-services/credit-agent-service-v2.js",
     "demo:credit:calls": "node scripts/demo-credit-cases.js",
     "build": "tsc",
     "start": "ts-node src/index.ts"
@@ -33,7 +33,8 @@
     "pdf-parse": "^1.1.1",
     "tesseract.js": "^5.1.0",
     "typescript": "^4.9.5",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "pdf-poppler": "^0.2.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

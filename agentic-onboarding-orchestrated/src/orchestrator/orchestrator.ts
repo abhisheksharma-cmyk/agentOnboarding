@@ -129,7 +129,7 @@ export function initOrchestrator() {
       };
 
       const durationMs = Date.now() - new Date(currentMachine.history[currentMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "kyc.completed", {
         agentOutput,
@@ -140,6 +140,15 @@ export function initOrchestrator() {
       // Update state machine based on decision
       let updatedMachine: OnboardingStateMachine;
       if (final === "APPROVE") {
+        // Update context for downstream agents
+        const updatedCtx: AgentContext = {
+          ...ctx,
+          payload: {
+            ...ctx.payload,
+            kycResult: agentOutput
+          }
+        };
+
         // Transition from KYC_STARTED to KYC_COMPLETED
         updatedMachine = transitionState(currentMachine, 'KYC_APPROVED', { agentOutput, durationMs });
         logStateTransition(traceId, currentMachine.currentState, updatedMachine.currentState, 'KYC_APPROVED');
@@ -148,7 +157,7 @@ export function initOrchestrator() {
         eventBus.publish("onboarding.kyc_complete", {
           agentOutput,
           final,
-          ctx,
+          ctx: updatedCtx,
           durationMs
         }, traceId);
 
@@ -156,7 +165,7 @@ export function initOrchestrator() {
         const nextMachine = transitionState(updatedMachine, 'START', {});
         logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
         stateMachines.set(traceId, nextMachine);
-        eventBus.publish("onboarding.address_verification", { ...ctx, stateMachine: nextMachine }, traceId);
+        eventBus.publish("onboarding.address_verification", { ...updatedCtx, stateMachine: nextMachine }, traceId);
       } else {
         // For ESCALATE or DENY, transition from KYC_STARTED to COMPLETED
         updatedMachine = transitionState(currentMachine, 'KYC_REJECTED', { agentOutput, durationMs });
@@ -198,7 +207,7 @@ export function initOrchestrator() {
       const start = Date.now();
       const agentOutput = await runAddressAgent(ctx);
       const durationMs = Date.now() - start;
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
       audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
 
       // Update state machine
@@ -208,13 +217,22 @@ export function initOrchestrator() {
 
       logStateTransition(traceId, stateMachine.currentState, updatedMachine.currentState, event);
 
-      eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx, durationMs }, traceId);
+      // Update context for downstream agents
+      const updatedCtx: AgentContext = {
+        ...ctx,
+        payload: {
+          ...ctx.payload,
+          addressResult: agentOutput
+        }
+      };
+
+      eventBus.publish("onboarding.address_verification_complete", { agentOutput, final, ctx: updatedCtx, durationMs }, traceId);
 
       if (final === "APPROVE") {
         const nextMachine = transitionState(updatedMachine, 'START', {});
         logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
         stateMachines.set(traceId, nextMachine);
-        eventBus.publish("onboarding.aml", { ...ctx, stateMachine: nextMachine }, traceId);
+        eventBus.publish("onboarding.aml", { ...updatedCtx, stateMachine: nextMachine }, traceId);
       } else {
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
@@ -249,7 +267,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "aml.completed", {
         agentOutput,
@@ -263,10 +281,19 @@ export function initOrchestrator() {
       stateMachines.set(traceId, updatedMachine);
       logStateTransition(traceId, stateMachine.currentState, updatedMachine.currentState, event);
 
+      // Update context for downstream agents
+      const updatedCtx: AgentContext = {
+        ...ctx,
+        payload: {
+          ...ctx.payload,
+          amlResult: agentOutput
+        }
+      };
+
       eventBus.publish("onboarding.aml_complete", {
         agentOutput,
         final,
-        ctx,
+        ctx: updatedCtx,
         durationMs
       }, traceId);
 
@@ -275,7 +302,7 @@ export function initOrchestrator() {
         const nextMachine = transitionState(updatedMachine, 'START', {});
         logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
         stateMachines.set(traceId, nextMachine);
-        eventBus.publish("onboarding.credit", { ...ctx, stateMachine: nextMachine }, traceId);
+        eventBus.publish("onboarding.credit", { ...updatedCtx, stateMachine: nextMachine }, traceId);
       } else {
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
       }
@@ -309,7 +336,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "credit.completed", {
         agentOutput,
@@ -322,10 +349,19 @@ export function initOrchestrator() {
       const updatedMachine = transitionState(stateMachine, event, { agentOutput, durationMs });
       stateMachines.set(traceId, updatedMachine);
 
+      // Update context for downstream agents
+      const updatedCtx: AgentContext = {
+        ...ctx,
+        payload: {
+          ...ctx.payload,
+          creditResult: agentOutput
+        }
+      };
+
       eventBus.publish("onboarding.credit_complete", {
         agentOutput,
         final,
-        ctx,
+        ctx: updatedCtx,
         durationMs
       }, traceId);
 
@@ -334,7 +370,7 @@ export function initOrchestrator() {
         const nextMachine = transitionState(updatedMachine, 'START', {});
         logStateTransition(traceId, updatedMachine.currentState, nextMachine.currentState, 'START');
         stateMachines.set(traceId, nextMachine);
-        eventBus.publish("onboarding.risk", { ...ctx, stateMachine: nextMachine }, traceId);
+        eventBus.publish("onboarding.risk", { ...updatedCtx, stateMachine: nextMachine }, traceId);
       } else {
         logStateTransition(traceId, 'CREDIT_COMPLETED', 'COMPLETED', 'CREDIT_REJECTED');
         eventBus.publish("onboarding.finished", { final, agentOutput }, traceId);
@@ -369,7 +405,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "risk.completed", {
         agentOutput,
@@ -469,7 +505,7 @@ async function runAndEvaluate(
   const start = Date.now();
   const out = await runner(ctx);
   const durationMs = Date.now() - start;
-  const final = evaluateDecision(out);
+  const final = evaluateDecision(out, ctx);
   audit(traceId, `${stage}.completed`, { agentOutput: out, finalDecision: final, durationMs });
   return { out, final, durationMs };
 }

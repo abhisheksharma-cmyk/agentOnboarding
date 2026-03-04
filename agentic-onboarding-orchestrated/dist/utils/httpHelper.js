@@ -30,17 +30,45 @@ async function callHttpAgent(endpoint, ctx, timeoutMs = 30000) {
             console.log("[HTTP Helper] Sending KYC/AML/Credit format request");
         }
         else {
-            // For address verification, extract address data
-            const payload = ctx.payload?.payload || ctx.payload;
-            const addressData = payload?.address || {
-                line1: payload?.line1 || payload?.street,
-                city: payload?.city,
-                state: payload?.state,
-                postalCode: payload?.postalCode || payload?.zipCode,
-                country: payload?.country || 'US'
+            // For address verification, extract address data from multiple input shapes
+            const payload = ctx?.payload || {};
+            const nestedPayload = payload?.payload && typeof payload.payload === 'object'
+                ? payload.payload
+                : {};
+            const addressFromObject = (payload.address && typeof payload.address === 'object' ? payload.address : null) ||
+                (nestedPayload.address && typeof nestedPayload.address === 'object'
+                    ? nestedPayload.address
+                    : null) ||
+                (payload.applicant?.address && typeof payload.applicant.address === 'object'
+                    ? payload.applicant.address
+                    : null) ||
+                (nestedPayload.applicant?.address &&
+                    typeof nestedPayload.applicant.address === 'object'
+                    ? nestedPayload.applicant.address
+                    : null);
+            const source = addressFromObject || nestedPayload || payload;
+            const addressData = {
+                line1: source?.line1 ||
+                    source?.addressLine1 ||
+                    source?.street ||
+                    payload?.line1 ||
+                    nestedPayload?.line1 ||
+                    (typeof payload.address === 'string' ? payload.address : undefined) ||
+                    (typeof nestedPayload.address === 'string' ? nestedPayload.address : undefined) ||
+                    "",
+                city: source?.city || payload?.city || nestedPayload?.city || "",
+                state: source?.state || payload?.state || nestedPayload?.state || "",
+                postalCode: source?.postalCode ||
+                    source?.zipCode ||
+                    source?.zip ||
+                    payload?.postalCode ||
+                    nestedPayload?.postalCode ||
+                    "",
+                country: source?.country || payload?.country || nestedPayload?.country || ""
             };
-            requestBody = { address: addressData };
-            console.log("[HTTP Helper] Sending address verification format request");
+            const isOnboardingAddressEndpoint = endpoint.includes("/onboarding/verify-address");
+            requestBody = isOnboardingAddressEndpoint ? { address: addressData } : addressData;
+            console.log(`[HTTP Helper] Sending address verification format request (${isOnboardingAddressEndpoint ? "nested" : "flat"})`);
         }
         console.log("[HTTP Helper] Request body:", JSON.stringify(requestBody, null, 2));
         console.log("[HTTP Helper] Making POST request to:", endpoint);
@@ -72,4 +100,3 @@ async function callHttpAgent(endpoint, ctx, timeoutMs = 30000) {
         throw error;
     }
 }
-//# sourceMappingURL=httpHelper.js.map

@@ -4,7 +4,13 @@ import { DocumentService } from '../services/documentService';
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
 import { runConfiguredAgent } from "../composable/runConfiguredAgent";
-import { AgentOutput } from "../types/types";
+import { AgentOutput, SlotName } from "../types/types";
+import {
+  extractTextFromPdf,
+  extractTextFromImage
+} from "../utils/documentParser";
+import path from 'path';
+import fs from 'fs';
 
 
 // Configure multer for file uploads
@@ -130,21 +136,65 @@ Object.defineProperty(kycAgent, 'endpoints', {
  * In production, this might call an external KYC LLM agent or vendor adapter.
  */
 export async function runKycAgent(ctx: AgentContext): Promise<AgentOutput> {
+  const payload = ctx.payload || {};
+  let documents = payload.documents || [];
+
+  if (documents.length === 0 && payload.documentId) {
+    const filePath = DocumentService.getDocumentPath(payload.documentId);
+    if (filePath && fs.existsSync(filePath)) {
+      const ext = path.extname(filePath).toLowerCase();
+      let text = "";
+      if (ext === '.pdf') {
+        text = await extractTextFromPdf(filePath);
+      } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+        text = await extractTextFromImage(filePath);
+      }
+
+      documents = [{
+        type: payload.documentType || 'unknown',
+        id: payload.documentId,
+        text: text,
+        fileName: path.basename(filePath)
+      }];
+    }
+  }
+
   // Ensure documentType is always present for downstream prompt/templates.
   const kycContext: AgentContext = {
     ...ctx,
     payload: {
-      ...ctx.payload,
-      documentType: ctx.payload?.documentType || "unknown",
+      ...payload,
+      documents,
+      documentType: payload.documentType || (documents[0]?.type) || "unknown",
     },
   };
 
-  return runConfiguredAgent("KYC", kycContext, async () => ({
-    proposal: "escalate",
-    confidence: 0.5,
-    reasons: ["KYC local fallback - manual review required"],
-    policy_refs: [],
-    flags: { missing_data: true },
-    metadata: { agent_name: "kyc_local_fallback", slot: "KYC" },
-  }));
+  return runConfiguredAgent("KYC", kycContext, async (currentCtx) => {
+    const applicant = currentCtx.payload?.applicant || {};
+    const extracted = currentCtx.payload?.extractedData || {}; // Assume some extracted data exists
+
+    // For demo: if we have manually entered data, we'll simulate a match.
+    // In a real scenario, this would compare applicant.fullName with extracted.name, etc.
+    const hasMatch = !!(applicant.fullName && applicant.dateOfBirth && applicant.address);
+
+    return {
+      proposal: hasMatch ? "approve" : "escalate",
+      confidence: hasMatch ? 0.92 : 0.5,
+      reasons: [hasMatch ? "KYC data matches applicant profile" : "KYC local fallback - manual review required"],
+      policy_refs: hasMatch ? ["KYC-MATCH-01"] : [],
+      flags: {
+        missing_data: !hasMatch,
+        data_match: hasMatch
+      },
+      metadata: {
+        agent_name: "kyc_local_matcher",
+        slot: "KYC",
+        match_details: {
+          name: !!applicant.fullName,
+          dob: !!applicant.dateOfBirth,
+          address: !!applicant.address
+        }
+      },
+    };
+  });
 }

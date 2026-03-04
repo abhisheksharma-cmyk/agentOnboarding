@@ -257,7 +257,7 @@ function extractAddressFromContext(context: AgentContext): Record<string, any> |
                     payload?.postalCode ||
                     nestedPayload?.postalCode ||
                     '',
-                country: candidate?.country || payload?.country || nestedPayload?.country || 'US'
+                country: candidate?.country || payload?.country || nestedPayload?.country || ''
             }
             : null;
 

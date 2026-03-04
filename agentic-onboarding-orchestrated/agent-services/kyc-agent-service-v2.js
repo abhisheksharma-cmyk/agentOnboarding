@@ -163,10 +163,10 @@ function evaluateDocument(doc, applicant, riskTolerance = "medium") {
 
   const applicantFields = buildApplicantFields(applicant);
 
-  const nameMatchType = getNameMatchType(docName, applicantName);
+  const nameMatchType = getNameMatchType(docName, applicantFields.name);
   result.nameMatchType = nameMatchType;
-  const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantDob);
-  const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantGender);
+  const dobMatches = !!normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantFields.dob);
+  const genderMatches = !!normalize(docGender) && normalize(docGender) === normalize(applicantFields.gender);
 
   const applyMatches = () => {
     if (nameMatchType === "exact") {

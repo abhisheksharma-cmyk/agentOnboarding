@@ -1,22 +1,22 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
     if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
     Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
+}) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
     Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
+}) : function(o, v) {
     o["default"] = v;
 });
 var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
+    var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
@@ -36,18 +36,21 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+require("./bootstrap/loadEnv");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto = __importStar(require("crypto"));
-const multer = require("multer");
+const multer_1 = __importDefault(require("multer"));
 const orchestrator_1 = require("./orchestrator/orchestrator");
 const onboardingWorkflow_1 = require("./workflows/onboardingWorkflow");
 const eventBus_1 = require("./eventBus/eventBus");
 const audit_1 = require("./auditTracking/audit");
+const documentParser_1 = require("./utils/documentParser");
 const addressAgent_1 = require("./agents/addressAgent");
 const kycAgent_1 = require("./agents/kycAgent");
+const agentRegistry_1 = require("./registry/agentRegistry");
 const amlAgent_1 = require("./agents/amlAgent");
 const creditAgent_1 = require("./agents/creditAgent");
 const riskAgent_1 = require("./agents/riskAgent");
@@ -91,109 +94,15 @@ function requireSession(sessionId) {
 }
 const uploadsRoot = path_1.default.join(process.cwd(), 'tmp', 'uploads');
 fs_1.default.mkdirSync(uploadsRoot, { recursive: true });
+// Utility functions
 function maskAadhaar(aadhaar) {
     const digits = aadhaar.replace(/\D/g, '');
     if (digits.length !== 12)
         return aadhaar;
     return `XXXX-XXXX-${digits.slice(8)}`;
 }
-async function extractTextFromPdf(filePath) {
-    const pdfParse = require('pdf-parse');
-    const buf = fs_1.default.readFileSync(filePath);
-    const out = await pdfParse(buf);
-    return out?.text || '';
-}
-async function extractTextFromImage(filePath) {
-    const tesseract = require('tesseract.js');
-    const worker = await tesseract.createWorker('eng');
-    const result = await worker.recognize(filePath);
-    await worker.terminate();
-    return result?.data?.text || '';
-}
-function parseAadhaarFieldsFromText(rawText) {
-    const text = (rawText || '').replace(/\r/g, '');
-    const lines = text
-        .split('\n')
-        .map(l => l.trim())
-        .filter(Boolean);
-    const joined = lines.join('\n');
-    const aadhaarMatch = joined.match(/\b(\d{4}\s?\d{4}\s?\d{4})\b/);
-    const aadhaarNumber = aadhaarMatch ? aadhaarMatch[1].replace(/\s+/g, '') : null;
-    const dobMatch = joined.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
-    const yobMatch = joined.match(/\b(19\d{2}|20\d{2})\b/);
-    const dateOfBirth = dobMatch ? dobMatch[1] : null;
-    const yearOfBirth = !dateOfBirth && yobMatch ? yobMatch[1] : null;
-    const genderMatch = joined.match(/\b(MALE|FEMALE|TRANSGENDER)\b/i);
-    const gender = genderMatch ? genderMatch[1].toUpperCase() : null;
-    let fullName = null;
-    const dobLineIndex = lines.findIndex(l => /\bDOB\b|\bDate of Birth\b|\bYear of Birth\b|\bYOB\b/i.test(l) || /\b\d{2}\/\d{2}\/\d{4}\b/.test(l));
-    const blacklist = new Set([
-        'GOVERNMENT OF INDIA',
-        'GOVT OF INDIA',
-        'UNIQUE IDENTIFICATION AUTHORITY OF INDIA',
-        'UIDAI',
-        'AADHAAR',
-        'DOB',
-        'DATE OF BIRTH',
-        'YEAR OF BIRTH',
-        'MALE',
-        'FEMALE',
-        'TRANSGENDER'
-    ]);
-    const looksLikeName = (s) => {
-        const up = s.toUpperCase();
-        if (blacklist.has(up))
-            return false;
-        if (/\d/.test(s))
-            return false;
-        if (s.length < 3)
-            return false;
-        if (!/^[A-Za-z .']+$/.test(s))
-            return false;
-        return true;
-    };
-    if (dobLineIndex > 0) {
-        for (let i = dobLineIndex - 1; i >= 0; i -= 1) {
-            if (looksLikeName(lines[i])) {
-                fullName = lines[i];
-                break;
-            }
-        }
-    }
-    if (!fullName) {
-        const nameLabelIndex = lines.findIndex(l => /^name\s*:/i.test(l));
-        if (nameLabelIndex !== -1) {
-            const labelLine = lines[nameLabelIndex];
-            const after = labelLine.split(':').slice(1).join(':').trim();
-            if (after && looksLikeName(after)) {
-                fullName = after;
-            }
-            else if (lines[nameLabelIndex + 1] && looksLikeName(lines[nameLabelIndex + 1])) {
-                fullName = lines[nameLabelIndex + 1];
-            }
-        }
-    }
-    const fields = {};
-    if (fullName)
-        fields.fullName = fullName;
-    if (dateOfBirth)
-        fields.dateOfBirth = dateOfBirth;
-    if (yearOfBirth)
-        fields.yearOfBirth = yearOfBirth;
-    if (gender)
-        fields.gender = gender;
-    if (aadhaarNumber) {
-        fields.idType = 'aadhaar';
-        fields.idNumber = aadhaarNumber;
-        fields.idNumberMasked = maskAadhaar(aadhaarNumber);
-    }
-    return {
-        fields,
-        extractedTextPreview: joined.slice(0, 600)
-    };
-}
-const upload = multer({
-    storage: multer.diskStorage({
+const upload = (0, multer_1.default)({
+    storage: multer_1.default.diskStorage({
         destination: (req, _file, cb) => {
             const sessionId = req.params?.id;
             const dir = sessionId ? path_1.default.join(uploadsRoot, sessionId) : uploadsRoot;
@@ -217,9 +126,7 @@ const upload = multer({
         cb(null, true);
     }
 });
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults = {};
 function generateTraceId() {
     return (Date.now().toString(36) +
@@ -230,9 +137,95 @@ function generateTraceId() {
 eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
     runResults[traceId] = data;
 });
-app.get("/", (_req, res) => {
-    res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
-});
+function sendError(res, err) {
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+        status: "error",
+        message: err?.message || "Unexpected error",
+    });
+}
+function buildContext(req, slot) {
+    const body = req.body ?? {};
+    const payload = (() => {
+        if (typeof body.payload === "string") {
+            try {
+                return JSON.parse(body.payload);
+            }
+            catch {
+                return {};
+            }
+        }
+        return body.payload ?? {};
+    })();
+    const documentType = body.documentType || payload.documentType || null;
+    const normalizedAddress = payload.address ||
+        payload.applicant?.address ||
+        body.address ||
+        body.applicant?.address ||
+        null;
+    const normalizedApplicant = {
+        ...(payload.applicant || {}),
+        ...(body.applicant || {}),
+        ...(normalizedAddress ? { address: normalizedAddress } : {}),
+    };
+    const sessionIdFromBody = body.sessionId || payload.sessionId;
+    let extractedFieldsFromSession = null;
+    let documentFromSession = null;
+    if (sessionIdFromBody && typeof sessionIdFromBody === 'string') {
+        const sess = chatSessions.get(sessionIdFromBody);
+        if (sess) {
+            console.log("[BuildContext] Session found for sessionId:", sessionIdFromBody);
+            console.log("[BuildContext] Session slots content:", sess.slots);
+            if (sess.slots && Object.keys(sess.slots).length > 0) {
+                extractedFieldsFromSession = { ...sess.slots };
+                const docAddress = sess.slots.address ||
+                    normalizedAddress ||
+                    payload.address ||
+                    body.address ||
+                    null;
+                documentFromSession = {
+                    fullName: sess.slots.fullName,
+                    gender: sess.slots.gender,
+                    dateOfBirth: sess.slots.dateOfBirth,
+                    address: docAddress
+                };
+                console.log("[BuildContext] documentFromSession constructed:", documentFromSession);
+            }
+            else {
+                console.log("[BuildContext] Session slots are empty or null.");
+            }
+        }
+        else {
+            console.log("[BuildContext] Session NOT found for sessionId:", sessionIdFromBody);
+        }
+    }
+    return {
+        customerId: body.customerId || "cus_demo",
+        applicationId: body.applicationId || "ca_demo",
+        slot,
+        payload: {
+            ...payload,
+            documentType,
+            riskProfile: body.riskProfile || payload.riskProfile || body.risk_tolerance || payload.risk_tolerance || "low",
+            agentSelection: body.agentSelection || payload.agentSelection || {},
+            documents: documentFromSession ? [documentFromSession, ...(Array.isArray(payload.documents) ? payload.documents : [])] : (payload.documents || []),
+            extractedFields: extractedFieldsFromSession || payload.extractedFields,
+            applicant: normalizedApplicant,
+            ...(normalizedAddress ? { address: normalizedAddress } : {}),
+        },
+    };
+}
+async function waitForResult(traceId, timeoutMs = 30000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (runResults[traceId]) {
+            return { status: "completed", result: runResults[traceId] };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return { status: "pending", result: null };
+}
 app.post('/chat/session/start', (_req, res) => {
     const id = crypto.randomUUID();
     const assistantMessage = {
@@ -288,22 +281,23 @@ app.post('/chat/session/:id/upload', upload.single('file'), async (req, res, nex
         let extractedText = '';
         try {
             if (attachment.mimeType === 'application/pdf') {
-                extractedText = await extractTextFromPdf(attachment.filePath);
+                extractedText = await (0, documentParser_1.extractTextFromPdf)(attachment.filePath);
             }
             else {
-                extractedText = await extractTextFromImage(attachment.filePath);
+                extractedText = await (0, documentParser_1.extractTextFromImage)(attachment.filePath);
             }
         }
         catch (e) {
             extractedText = '';
         }
-        const { fields, extractedTextPreview } = parseAadhaarFieldsFromText(extractedText);
+        const fields = (0, documentParser_1.parseDocumentFields)(extractedText);
+        const extractedTextPreview = extractedText.slice(0, 600);
         const hasAnyField = Object.keys(fields).length > 0;
         session.pendingConfirmation = hasAnyField ? fields : null;
         const durationMs = Date.now() - started;
         const reply = hasAnyField
-            ? `I extracted Aadhaar details (took ${durationMs}ms). Please confirm below.`
-            : `I received ${file.originalname}, but couldn’t reliably extract Aadhaar details. You can enter them manually in chat.`;
+            ? `I extracted details from your ${fields.idType || 'document'} (took ${durationMs}ms). Please confirm below.`
+            : `I received ${file.originalname}, but couldn’t reliably extract details. You can enter them manually in chat.`;
         session.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
         res.json({
             attachmentId: attachment.id,
@@ -364,7 +358,7 @@ app.post('/onboarding/verify-address', async (req, res) => {
                     city: address.city || '',
                     state: address.state || '',
                     postalCode: address.postalCode || '',
-                    country: address.country || 'US'
+                    country: address.country || ''
                 }
             }
         });
@@ -382,49 +376,21 @@ app.post('/onboarding/verify-address', async (req, res) => {
 });
 /**
  * Start a full onboarding run.
- * Returns traceId immediately and, after a short delay, the final result + audit trail.
- */
-app.post("/onboarding/start", async (req, res) => {
-    const traceId = generateTraceId();
-    // Extract document type from payload if available
-    const documentType = req.body.documentType || req.body.payload?.documentType || null;
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "KYC",
-        payload: {
-            ...(req.body.payload || {}),
-            documentType: documentType, // Ensure documentType is in payload
-            documents: req.body.payload?.documents || [],
-            applicant: req.body.payload?.applicant || {}
-        },
-    };
-}
-function sendError(res, err) {
-        // eslint-disable-next-line no-console
-        console.error("onboarding/start failed", err);
-        return res.status(500).json({
-            status: "error",
-            message: err?.message || "Unexpected error",
-        });
-    }
-/**
- * Start a full onboarding run.
  * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
 app.post("/onboarding/start", async (req, res) => {
-        try {
-            const traceId = generateTraceId();
-            const ctx = buildContext(req, "KYC");
-            (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
-            const { status, result } = await waitForResult(traceId);
-            const auditTrail = (0, audit_1.getTrace)(traceId);
-            return res.json({ traceId, status, result, auditTrail });
-        }
-        catch (err) {
-            return sendError(res, err);
-        }
-    });
+    try {
+        const traceId = generateTraceId();
+        const ctx = buildContext(req, "KYC");
+        (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
+        const { status, result } = await waitForResult(traceId);
+        const auditTrail = (0, audit_1.getTrace)(traceId);
+        return res.json({ traceId, status, result, auditTrail });
+    }
+    catch (err) {
+        return sendError(res, err);
+    }
+});
 /** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
@@ -443,6 +409,20 @@ app.get("/onboarding/trace/:traceId", (req, res) => {
 app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Reference" });
 });
+app.get("/config/agents", (_req, res) => {
+    try {
+        const agents = (0, agentRegistry_1.loadAgentsConfig)();
+        const active = (0, agentRegistry_1.getActiveAgents)();
+        const profilePath = process.env.AGENTS_CONFIG_PATH || path_1.default.join(process.cwd(), "config", "agents.yaml");
+        res.json({ profilePath, agents, active });
+    }
+    catch (err) {
+        res.status(500).json({
+            error: "Failed to load agents configuration",
+            message: err?.message || "Unexpected error"
+        });
+    }
+});
 app.post("/test/kyc", async (req, res) => {
     const ctx = buildContext(req, "KYC");
     const out = await (0, kycAgent_1.runKycAgent)(ctx);
@@ -455,7 +435,7 @@ app.post("/test/kyc", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/aml", async (req, res) => {
@@ -470,7 +450,7 @@ app.post("/test/aml", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/credit", async (req, res) => {
@@ -485,7 +465,7 @@ app.post("/test/credit", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/risk", async (req, res) => {
@@ -500,7 +480,7 @@ app.post("/test/risk", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 // Error handling middleware
@@ -516,4 +496,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
-//# sourceMappingURL=index.js.map
