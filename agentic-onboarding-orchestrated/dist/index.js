@@ -1,22 +1,22 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
     if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
     Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
+}) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
     Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
+}) : function(o, v) {
     o["default"] = v;
 });
 var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
+    var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
@@ -36,6 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+require("./bootstrap/loadEnv");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const fs_1 = __importDefault(require("fs"));
@@ -217,9 +218,7 @@ const upload = multer({
         cb(null, true);
     }
 });
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults = {};
 function generateTraceId() {
     return (Date.now().toString(36) +
@@ -230,14 +229,11 @@ function generateTraceId() {
 eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
     runResults[traceId] = data;
 });
-app.get("/", (_req, res) => {
-    res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
-});
 app.post('/chat/session/start', (_req, res) => {
     const id = crypto.randomUUID();
     const assistantMessage = {
         role: 'assistant',
-        text: 'Hi! You can describe your details here or upload your Aadhaar (PDF/image) to autofill. What would you like to do? ',
+        text: 'Welcome! Let\'s get started with your onboarding. What is your full name?',
         ts: Date.now()
     };
     const session = {
@@ -343,6 +339,18 @@ app.post('/chat/session/:id/confirm', (req, res, next) => {
         next(err);
     }
 });
+app.post('/chat/session/:id/sync-slots', (req, res, next) => {
+    try {
+        const session = requireSession(req.params.id);
+        const slots = req.body?.slots && typeof req.body.slots === 'object' ? req.body.slots : {};
+        // Merge the provided slots with existing session slots
+        session.slots = { ...session.slots, ...slots };
+        res.json({ success: true, slots: session.slots });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 app.post('/onboarding/verify-address', async (req, res) => {
     console.log('Received address verification request:', JSON.stringify(req.body, null, 2));
     const { address } = req.body;
@@ -386,45 +394,105 @@ app.post('/onboarding/verify-address', async (req, res) => {
  */
 app.post("/onboarding/start", async (req, res) => {
     const traceId = generateTraceId();
+    const body = req.body ?? {};
+    const payload = (() => {
+        if (typeof body.payload === "string") {
+            try {
+                return JSON.parse(body.payload);
+            }
+            catch {
+                return {};
+            }
+        }
+        return body.payload ?? {};
+    })();
     // Extract document type from payload if available
-    const documentType = req.body.documentType || req.body.payload?.documentType || null;
+    const documentType = body.documentType || payload.documentType || null;
+    const normalizedAddress = payload.address ||
+        payload.applicant?.address ||
+        body.address ||
+        body.applicant?.address ||
+        null;
+    const normalizedApplicant = {
+        ...(payload.applicant || {}),
+        ...(body.applicant || {}),
+        ...(normalizedAddress ? { address: normalizedAddress } : {}),
+    };
     const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
+        customerId: body.customerId || "cus_demo",
+        applicationId: body.applicationId || "ca_demo",
         slot: "KYC",
         payload: {
-            ...(req.body.payload || {}),
+            ...payload,
             documentType: documentType, // Ensure documentType is in payload
-            documents: req.body.payload?.documents || [],
-            applicant: req.body.payload?.applicant || {}
+            documents: payload.documents || [],
+            applicant: normalizedApplicant,
+            ...(normalizedAddress ? { address: normalizedAddress } : {}),
+            risk_tolerance: body.risk_tolerance || payload.risk_tolerance || 'HIGH' // Default to HIGH for auto-approval
+        },
+    };
+    // Start the onboarding workflow
+    (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
+    // Wait for result with timeout
+    const waitForResult = async (traceId, timeoutMs = 5000) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            if (runResults[traceId]) {
+                return { status: "completed", result: runResults[traceId] };
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return { status: "pending", result: null };
+    };
+    const { status, result } = await waitForResult(traceId);
+    const auditTrail = (0, audit_1.getTrace)(traceId);
+    return res.json({ traceId, status, result, auditTrail });
+});
+function sendError(res, err) {
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+        status: "error",
+        message: err?.message || "Unexpected error",
+    });
+}
+function buildContext(req, slot) {
+    const body = req.body ?? {};
+    const payload = (() => {
+        if (typeof body.payload === "string") {
+            try {
+                return JSON.parse(body.payload);
+            }
+            catch {
+                return {};
+            }
+        }
+        return body.payload ?? {};
+    })();
+    const documentType = body.documentType || payload.documentType || null;
+    const normalizedAddress = payload.address ||
+        payload.applicant?.address ||
+        body.address ||
+        body.applicant?.address ||
+        null;
+    const normalizedApplicant = {
+        ...(payload.applicant || {}),
+        ...(body.applicant || {}),
+        ...(normalizedAddress ? { address: normalizedAddress } : {}),
+    };
+    return {
+        customerId: body.customerId || "cus_demo",
+        applicationId: body.applicationId || "ca_demo",
+        slot,
+        payload: {
+            ...payload,
+            documentType: documentType,
+            documents: payload.documents || [],
+            applicant: normalizedApplicant,
+            ...(normalizedAddress ? { address: normalizedAddress } : {})
         },
     };
 }
-function sendError(res, err) {
-        // eslint-disable-next-line no-console
-        console.error("onboarding/start failed", err);
-        return res.status(500).json({
-            status: "error",
-            message: err?.message || "Unexpected error",
-        });
-    }
-/**
- * Start a full onboarding run.
- * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
- */
-app.post("/onboarding/start", async (req, res) => {
-        try {
-            const traceId = generateTraceId();
-            const ctx = buildContext(req, "KYC");
-            (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
-            const { status, result } = await waitForResult(traceId);
-            const auditTrail = (0, audit_1.getTrace)(traceId);
-            return res.json({ traceId, status, result, auditTrail });
-        }
-        catch (err) {
-            return sendError(res, err);
-        }
-    });
 /** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
@@ -443,6 +511,17 @@ app.get("/onboarding/trace/:traceId", (req, res) => {
 app.get("/", (_req, res) => {
     res.json({ status: "ok", message: "Agentic Onboarding Reference" });
 });
+app.get("/config/agents", (_req, res) => {
+    try {
+        const { loadAgentsConfig } = require('./registry/agentRegistry');
+        const agentsConfig = loadAgentsConfig();
+        res.json(agentsConfig);
+    }
+    catch (error) {
+        console.error('Error loading agent config:', error);
+        res.status(500).json({ error: 'Failed to load agent configuration' });
+    }
+});
 app.post("/test/kyc", async (req, res) => {
     const ctx = buildContext(req, "KYC");
     const out = await (0, kycAgent_1.runKycAgent)(ctx);
@@ -455,7 +534,7 @@ app.post("/test/kyc", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/aml", async (req, res) => {
@@ -470,7 +549,7 @@ app.post("/test/aml", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/credit", async (req, res) => {
@@ -485,7 +564,7 @@ app.post("/test/credit", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 app.post("/test/risk", async (req, res) => {
@@ -500,7 +579,7 @@ app.post("/test/risk", async (req, res) => {
         policy_refs: out.policy_refs || [],
         flags: out.flags || {}
     };
-    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput);
+    const finalDecision = (0, decisionGateway_1.evaluateDecision)(agentOutput, ctx);
     res.json({ agentOutput, finalDecision });
 });
 // Error handling middleware
@@ -516,4 +595,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
-//# sourceMappingURL=index.js.map

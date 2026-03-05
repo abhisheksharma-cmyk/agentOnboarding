@@ -159,14 +159,25 @@ function evaluateDocument(doc, applicant, riskTolerance = "medium") {
     missingData: false,
     policyConflict: false,
     nameMatchType: "unknown",
+    matchedFields: 0,
+    totalFields: 0,
   };
 
   const applicantFields = buildApplicantFields(applicant);
+  const applicantName = applicantFields.name;
+  const applicantDob = applicantFields.dob;
+  const applicantGender = applicantFields.gender;
 
   const nameMatchType = getNameMatchType(docName, applicantName);
   result.nameMatchType = nameMatchType;
   const dobMatches = normalizeDob(docDob) && normalizeDob(docDob) === normalizeDob(applicantDob);
   const genderMatches = normalize(docGender) && normalize(docGender) === normalize(applicantGender);
+
+  // Track matched fields
+  result.totalFields = 3; // name, dob, gender
+  if (nameMatchType === "exact" || nameMatchType === "initials") result.matchedFields++;
+  if (dobMatches) result.matchedFields++;
+  if (genderMatches) result.matchedFields++;
 
   const applyMatches = () => {
     if (nameMatchType === "exact") {
@@ -241,7 +252,7 @@ function evaluateDocument(doc, applicant, riskTolerance = "medium") {
 }
 
 function buildDecision({ applicant, documents }) {
-  const riskTolerance = normalize(applicant?.risk_tolerance || applicant?.riskTolerance || "medium");
+  const riskTolerance = normalize(applicant?.risk_tolerance || applicant?.riskTolerance || "low");
   const reasons = [];
   const policyRefs = new Set();
   let missingData = false;
@@ -278,15 +289,27 @@ function buildDecision({ applicant, documents }) {
     proposal = "deny";
   } else if (hasStrong && !hasSuspicious) {
     proposal = "approve";
-  } else if (riskTolerance === "high" && hasInitialsOnly && !hasSuspicious) {
-    proposal = "approve";
+  } else if (riskTolerance === "high") {
+    // HIGH risk tolerance: More lenient approval logic
+    if (hasMinimal && !policyConflict) {
+      proposal = "approve";
+      reasons.push("Approved with HIGH risk tolerance (minimal data present)");
+    } else if (hasInitialsOnly && !hasSuspicious) {
+      proposal = "approve";
+      reasons.push("Approved with HIGH risk tolerance (name matched by initials)");
+    }
   } else if (!hasMinimal || hasSuspicious) {
     proposal = "escalate";
   }
 
-  let confidence = Math.max(0.35, Math.min(0.9, hasStrong ? bestScore : bestScore - 0.1));
+  let confidence = Math.max(0.4, Math.min(0.95, hasStrong ? bestScore : bestScore - 0.05));
+
+  // Adjust confidence based on risk tolerance and proposal
   if (proposal === "deny" && confidence < 0.85) confidence = 0.85;
-  if (riskTolerance === "high" && proposal === "approve" && confidence < 0.82) confidence = 0.82;
+  if (riskTolerance === "high" && proposal === "approve") {
+    // For HIGH risk tolerance approvals, ensure confidence is at least 0.5
+    confidence = Math.max(0.5, confidence);
+  }
   if (riskTolerance === "low" && proposal === "escalate" && confidence > 0.7) confidence = 0.7;
 
   return {

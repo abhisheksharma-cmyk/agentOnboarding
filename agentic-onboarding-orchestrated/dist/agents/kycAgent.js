@@ -5,10 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.kycAgent = void 0;
 exports.runKycAgent = runKycAgent;
-const agentRegistry_1 = require("../registry/agentRegistry");
-const httpHelper_1 = require("../utils/httpHelper");
 const documentService_1 = require("../services/documentService");
 const multer_1 = __importDefault(require("multer"));
+const runConfiguredAgent_1 = require("../composable/runConfiguredAgent");
 // Configure multer for file uploads
 const storage = multer_1.default.diskStorage({
     destination: (req, file, cb) => {
@@ -127,39 +126,20 @@ Object.defineProperty(exports.kycAgent, 'endpoints', {
  * In production, this might call an external KYC LLM agent or vendor adapter.
  */
 async function runKycAgent(ctx) {
-    const agentInfo = (0, agentRegistry_1.getAgentConfig)("KYC");
-    if (!agentInfo) {
-        throw new Error('No KYC agent configuration found');
-    }
-    const { agentId, config } = agentInfo;
-    if (config.type === "http") {
-        try {
-            const out = await (0, httpHelper_1.callHttpAgent)(config.endpoint, ctx, config.timeout_ms);
-            out.metadata = { ...(out.metadata || {}), agent_name: agentId, slot: "KYC" };
-            return out;
-        }
-        catch (err) {
-            // Graceful degradation if HTTP agent is down/unreachable.
-            return {
-                proposal: "escalate",
-                confidence: 0.4,
-                reasons: [`KYC HTTP agent unreachable: ${err?.message || err}`],
-                policy_refs: [],
-                flags: { missing_data: true, contradictory_signals: true },
-                metadata: { agent_name: agentId, slot: "KYC" },
-            };
-        }
-    }
-    // Fallback local behavior
-    return {
-        success: false,
-        message: "KYC local fallback - no HTTP agent configured",
+    // Ensure documentType is always present for downstream prompt/templates.
+    const kycContext = {
+        ...ctx,
+        payload: {
+            ...ctx.payload,
+            documentType: ctx.payload?.documentType || "unknown",
+        },
+    };
+    return (0, runConfiguredAgent_1.runConfiguredAgent)("KYC", kycContext, async () => ({
         proposal: "escalate",
         confidence: 0.5,
-        reasons: ["KYC local fallback - no HTTP agent configured"],
+        reasons: ["KYC local fallback - manual review required"],
         policy_refs: [],
         flags: { missing_data: true },
-        metadata: { agent_name: "kyc_local_fallback", slot: "KYC" }
-    };
+        metadata: { agent_name: "kyc_local_fallback", slot: "KYC" },
+    }));
 }
-//# sourceMappingURL=kycAgent.js.map

@@ -10,4 +10,3 @@ function startOnboarding(ctx, traceId) {
     (0, audit_1.audit)(traceId, "onboarding.entrypoint", { ctx });
     eventBus_1.eventBus.publish("onboarding.started", ctx, traceId);
 }
-//# sourceMappingURL=onboardingWorkflow.js.map

@@ -34,12 +34,5 @@ class EventBus {
         };
         this.subscribe(eventType, onceHandler);
     }
-    unsubscribe(eventType, handler) {
-        const handlers = this.handlers[eventType];
-        if (handlers) {
-            this.handlers[eventType] = handlers.filter(h => h !== handler);
-        }
-    }
 }
 exports.eventBus = new EventBus();
-//# sourceMappingURL=eventBus.js.map
