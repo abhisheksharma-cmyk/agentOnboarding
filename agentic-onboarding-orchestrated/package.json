@@ -6,9 +6,9 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "run:kyc": "node ./node_modules/ts-node/dist/bin.js src/agents/kycAgent.ts",
     "mock:address": "node mocks/mock-address-agent.js",
-    "mock:kyc2": "node mocks/mock-kyc2-agent.js",
-    "mock:aml2": "node mocks/mock-aml2-agent.js",
-    "mock:credit2": "node mocks/mock-credit2-agent.js",
+    "mock:kyc2": "node agent-services/kyc-agent-service-v2.js",
+    "mock:aml2": "node agent-services/aml-agent-service-v2.js",
+    "mock:credit2": "node agent-services/credit-agent-service-v2.js",
     "demo:credit:calls": "node scripts/demo-credit-cases.js",
     "build": "tsc",
     "start": "ts-node src/index.ts"
