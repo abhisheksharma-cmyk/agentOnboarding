@@ -1,5 +1,7 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 console.log("[KYC2 Startup] Checking GROQ_API_KEY environment variable. Has value: ", !!process.env.GROQ_API_KEY);
+console.log("[KYC2 Startup] GROQ_API_KEY length: ", process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.length : 0);
 console.log("[KYC2 Startup] Checking GROQ_MODEL environment variable. Has value: ", !!process.env.GROQ_MODEL);
 const express = require("express");
 const { callGroq } = require("../groq/groqClient");
@@ -266,7 +268,13 @@ function buildDecision({ applicant, documents }) {
     res.policyRefs.forEach((p) => policyRefs.add(p));
     if (res.missingData) missingData = true;
     if (res.policyConflict) policyConflict = true;
-    if (res.suspicious) contradictory = true;
+    // For HIGH risk tolerance, don't mark as contradictory for minor issues
+    if (res.suspicious && riskTolerance !== 'high') {
+      contradictory = true;
+    } else if (res.suspicious && riskTolerance === 'high' && res.policyConflict) {
+      // Only mark as contradictory for HIGH risk if there's a policy conflict
+      contradictory = true;
+    }
     matchedFields += res.matchedFields;
     consideredFields += res.totalFields;
     reasons.push(...res.reasons);
@@ -373,13 +381,22 @@ app.post("/agents/kyc2/decide", async (req, res) => {
 
     // Apply type-specific validation
     if (docType.includes('passport')) {
-      if (!doc.number || !/^[A-Z0-9]{8,9}$/i.test(doc.number)) {
+      if (!doc.number || !/^[A-Z0-9]{6,9}$/i.test(doc.number)) {
         validation.errors.push('Invalid passport number format');
         validation.isValid = false;
       }
-      if (!doc.name) validation.errors.push('Name is required');
-      if (!doc.dob) validation.errors.push('Date of birth is required');
-      if (!doc.expiryDate) validation.errors.push('Expiry date is required');
+      if (!doc.name) {
+        validation.errors.push('Name is required');
+        validation.isValid = false;
+      }
+      if (!doc.dob) {
+        validation.errors.push('Date of birth is required');
+        validation.isValid = false;
+      }
+      // For HIGH risk tolerance, don't require expiry date
+      if (riskTolerance !== 'high' && !doc.expiryDate) {
+        validation.errors.push('Expiry date is required');
+      }
       if (doc.expiryDate && new Date(doc.expiryDate) < new Date()) {
         validation.errors.push('Passport has expired');
         validation.isValid = false;
@@ -450,10 +467,30 @@ app.post("/agents/kyc2/decide", async (req, res) => {
     decision.reasons = [...allValidationErrors, ...decision.reasons];
   }
 
+  // For HIGH risk tolerance, don't escalate just because of validation warnings
   if (hasInvalidDocs && decision.proposal !== 'deny') {
-    decision.proposal = 'escalate';
-    decision.confidence = Math.min(decision.confidence, 0.5);
-    decision.flags.missing_data = true;
+    if (riskTolerance === 'high') {
+      // Only escalate if there are critical validation errors (not just warnings)
+      const hasCriticalErrors = validationResults.some(r =>
+        r.validation?.errors?.some(e =>
+          e.includes('Invalid') || e.includes('expired') || e.includes('checksum')
+        )
+      );
+
+      if (hasCriticalErrors) {
+        decision.proposal = 'escalate';
+        decision.confidence = Math.min(decision.confidence, 0.5);
+        decision.flags.missing_data = true;
+      } else {
+        // Just warnings, keep the original proposal
+        decision.reasons.push('Some optional fields missing but approved with HIGH risk tolerance');
+      }
+    } else {
+      // For LOW/MEDIUM risk tolerance, escalate on any validation issues
+      decision.proposal = 'escalate';
+      decision.confidence = Math.min(decision.confidence, 0.5);
+      decision.flags.missing_data = true;
+    }
   }
 
   if (groqOut?.summary_reasons?.length) {

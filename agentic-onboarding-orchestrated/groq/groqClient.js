@@ -1,3 +1,5 @@
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const fetch = require("node-fetch");
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.GROQ_TIMEOUT_MS || 10000);

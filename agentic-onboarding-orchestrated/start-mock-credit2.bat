@@ -1,4 +1,4 @@
 @echo off
 cd /d %~dp0
-node mocks/mock-credit2-agent.js
+node agent-services/credit-agent-service-v2.js
 

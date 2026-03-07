@@ -1,4 +1,4 @@
 @echo off
 cd /d %~dp0
-node mocks/mock-aml2-agent.js
+node agent-services/aml-agent-service-v2.js
 
