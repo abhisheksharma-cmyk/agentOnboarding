@@ -39,7 +39,7 @@ agents:
       kyc_agent_v1:
         type: http
         endpoint: http://localhost:5005/agents/kyc2/decide
-        timeout_ms: 1500
+        timeout_ms: 30000
         enabled: true
       kyc_langgraph_v1:
         type: langgraph
@@ -74,7 +74,7 @@ agents:
       aml_agent_v1:
         type: http
         endpoint: http://localhost:5006/agents/aml2/decide
-        timeout_ms: 1500
+        timeout_ms: 30000
         enabled: true
       aml_langgraph_v1:
         type: langgraph
@@ -103,7 +103,7 @@ agents:
       credit_agent_v1:
         type: http
         endpoint: http://localhost:5007/agents/credit2/decide
-        timeout_ms: 2000
+        timeout_ms: 30000
         enabled: true
       credit_langgraph_v1:
         type: langgraph

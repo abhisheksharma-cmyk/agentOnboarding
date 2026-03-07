@@ -129,7 +129,7 @@ export function initOrchestrator() {
       };
 
       const durationMs = Date.now() - new Date(currentMachine.history[currentMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "kyc.completed", {
         agentOutput,
@@ -198,7 +198,7 @@ export function initOrchestrator() {
       const start = Date.now();
       const agentOutput = await runAddressAgent(ctx);
       const durationMs = Date.now() - start;
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
       audit(traceId, "address_verification.completed", { agentOutput, finalDecision: final, durationMs });
 
       // Update state machine
@@ -249,7 +249,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "aml.completed", {
         agentOutput,
@@ -309,7 +309,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "credit.completed", {
         agentOutput,
@@ -369,7 +369,7 @@ export function initOrchestrator() {
       );
 
       const durationMs = Date.now() - new Date(stateMachine.history[stateMachine.history.length - 1].timestamp).getTime();
-      const final = evaluateDecision(agentOutput);
+      const final = evaluateDecision(agentOutput, ctx);
 
       audit(traceId, "risk.completed", {
         agentOutput,
@@ -469,7 +469,7 @@ async function runAndEvaluate(
   const start = Date.now();
   const out = await runner(ctx);
   const durationMs = Date.now() - start;
-  const final = evaluateDecision(out);
+  const final = evaluateDecision(out, ctx);
   audit(traceId, `${stage}.completed`, { agentOutput: out, finalDecision: final, durationMs });
   return { out, final, durationMs };
 }

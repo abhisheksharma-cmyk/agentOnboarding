@@ -22,4 +22,3 @@ function audit(traceId, stage, payload) {
 function getTrace(traceId) {
     return auditEvents.filter(e => e.traceId === traceId);
 }
-//# sourceMappingURL=audit.js.map
