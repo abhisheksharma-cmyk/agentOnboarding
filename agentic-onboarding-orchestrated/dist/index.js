@@ -1,22 +1,22 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
     if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
     Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
+}) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
     Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
+}) : function(o, v) {
     o["default"] = v;
 });
 var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
+    var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
@@ -36,6 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+require("./bootstrap/loadEnv");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const fs_1 = __importDefault(require("fs"));
@@ -217,9 +218,7 @@ const upload = multer({
         cb(null, true);
     }
 });
-/**
- * In-memory store for run results keyed by traceId.
- */
+/** In-memory store for run results keyed by traceId. */
 const runResults = {};
 function generateTraceId() {
     return (Date.now().toString(36) +
@@ -230,9 +229,62 @@ function generateTraceId() {
 eventBus_1.eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
     runResults[traceId] = data;
 });
-app.get("/", (_req, res) => {
-    res.json({ status: "ok", message: "Agentic Onboarding Orchestrated" });
-});
+function buildContext(req, slot) {
+    const body = req.body ?? {};
+    const payload = (() => {
+        if (typeof body.payload === "string") {
+            try {
+                return JSON.parse(body.payload);
+            }
+            catch {
+                return {};
+            }
+        }
+        return body.payload ?? {};
+    })();
+    const documentType = body.documentType || payload.documentType || null;
+    const normalizedAddress = payload.address ||
+        payload.applicant?.address ||
+        body.address ||
+        body.applicant?.address ||
+        null;
+    const normalizedApplicant = {
+        ...(payload.applicant || {}),
+        ...(body.applicant || {}),
+        ...(normalizedAddress ? { address: normalizedAddress } : {}),
+    };
+    return {
+        customerId: body.customerId || "cus_demo",
+        applicationId: body.applicationId || "ca_demo",
+        slot,
+        payload: {
+            ...payload,
+            documentType,
+            documents: Array.isArray(payload.documents) ? payload.documents : [],
+            applicant: normalizedApplicant,
+            ...(normalizedAddress ? { address: normalizedAddress } : {}),
+        },
+    };
+}
+async function waitForResult(traceId, timeoutMs = 400, pollMs = 40) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const result = runResults[traceId];
+        if (result) {
+            return { status: "completed", result };
+        }
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+    return { status: "pending", result: null };
+}
+function sendError(res, err) {
+    // eslint-disable-next-line no-console
+    console.error("onboarding/start failed", err);
+    return res.status(500).json({
+        status: "error",
+        message: err?.message || "Unexpected error",
+    });
+}
 app.post('/chat/session/start', (_req, res) => {
     const id = crypto.randomUUID();
     const assistantMessage = {
@@ -382,49 +434,21 @@ app.post('/onboarding/verify-address', async (req, res) => {
 });
 /**
  * Start a full onboarding run.
- * Returns traceId immediately and, after a short delay, the final result + audit trail.
- */
-app.post("/onboarding/start", async (req, res) => {
-    const traceId = generateTraceId();
-    // Extract document type from payload if available
-    const documentType = req.body.documentType || req.body.payload?.documentType || null;
-    const ctx = {
-        customerId: req.body.customerId || "cus_demo",
-        applicationId: req.body.applicationId || "ca_demo",
-        slot: "KYC",
-        payload: {
-            ...(req.body.payload || {}),
-            documentType: documentType, // Ensure documentType is in payload
-            documents: req.body.payload?.documents || [],
-            applicant: req.body.payload?.applicant || {}
-        },
-    };
-}
-function sendError(res, err) {
-        // eslint-disable-next-line no-console
-        console.error("onboarding/start failed", err);
-        return res.status(500).json({
-            status: "error",
-            message: err?.message || "Unexpected error",
-        });
-    }
-/**
- * Start a full onboarding run.
  * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
 app.post("/onboarding/start", async (req, res) => {
-        try {
-            const traceId = generateTraceId();
-            const ctx = buildContext(req, "KYC");
-            (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
-            const { status, result } = await waitForResult(traceId);
-            const auditTrail = (0, audit_1.getTrace)(traceId);
-            return res.json({ traceId, status, result, auditTrail });
-        }
-        catch (err) {
-            return sendError(res, err);
-        }
-    });
+    try {
+        const traceId = generateTraceId();
+        const ctx = buildContext(req, "KYC");
+        (0, onboardingWorkflow_1.startOnboarding)(ctx, traceId);
+        const { status, result } = await waitForResult(traceId);
+        const auditTrail = (0, audit_1.getTrace)(traceId);
+        return res.json({ traceId, status, result, auditTrail });
+    }
+    catch (err) {
+        return sendError(res, err);
+    }
+});
 /** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {
     const traceId = req.params.traceId;
@@ -516,4 +540,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
-//# sourceMappingURL=index.js.map

@@ -243,6 +243,73 @@ eventBus.subscribe("onboarding.finished", ({ traceId, data }) => {
 
 type WaitResult = { status: "completed" | "pending"; result: any };
 
+function buildContext(req: express.Request, slot: SlotName): AgentContext {
+  const body = req.body ?? {};
+
+  const payload = (() => {
+    if (typeof body.payload === "string") {
+      try {
+        return JSON.parse(body.payload);
+      } catch {
+        return {};
+      }
+    }
+    return body.payload ?? {};
+  })();
+
+  const documentType = body.documentType || payload.documentType || null;
+  const normalizedAddress =
+    payload.address ||
+    payload.applicant?.address ||
+    body.address ||
+    body.applicant?.address ||
+    null;
+
+  const normalizedApplicant = {
+    ...(payload.applicant || {}),
+    ...(body.applicant || {}),
+    ...(normalizedAddress ? { address: normalizedAddress } : {}),
+  };
+
+  return {
+    customerId: body.customerId || "cus_demo",
+    applicationId: body.applicationId || "ca_demo",
+    slot,
+    payload: {
+      ...payload,
+      documentType,
+      documents: Array.isArray(payload.documents) ? payload.documents : [],
+      applicant: normalizedApplicant,
+      ...(normalizedAddress ? { address: normalizedAddress } : {}),
+    },
+  };
+}
+
+async function waitForResult(
+  traceId: string,
+  timeoutMs = 400,
+  pollMs = 40
+): Promise<WaitResult> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = runResults[traceId];
+    if (result) {
+      return { status: "completed", result };
+    }
+    await new Promise(resolve => setTimeout(resolve, pollMs));
+  }
+  return { status: "pending", result: null };
+}
+
+function sendError(res: express.Response, err: unknown) {
+  // eslint-disable-next-line no-console
+  console.error("onboarding/start failed", err);
+  return res.status(500).json({
+    status: "error",
+    message: (err as Error)?.message || "Unexpected error",
+  });
+}
+
 app.post('/chat/session/start', (_req, res) => {
   const id = crypto.randomUUID();
   const assistantMessage: ChatMessage = {
@@ -406,79 +473,22 @@ app.post('/onboarding/verify-address', async (req, res) => {
 
 /**
  * Start a full onboarding run.
- * Returns traceId immediately and, after a short delay, the final result + audit trail.
- */
-app.post("/onboarding/start", async (req, res) => {
-  const traceId = generateTraceId();
-  const body = req.body ?? {};
-
-  const payload = (() => {
-    if (typeof body.payload === "string") {
-      try {
-        return JSON.parse(body.payload);
-      } catch {
-        return {};
-      }
-    }
-    return body.payload ?? {};
-  })();
-
-  // Extract document type from payload if available
-  const documentType = body.documentType || payload.documentType || null;
-  const normalizedAddress =
-    payload.address ||
-    payload.applicant?.address ||
-    body.address ||
-    body.applicant?.address ||
-    null;
-
-  const normalizedApplicant = {
-    ...(payload.applicant || {}),
-    ...(body.applicant || {}),
-    ...(normalizedAddress ? { address: normalizedAddress } : {}),
-  };
-
-  const ctx: AgentContext = {
-    customerId: body.customerId || "cus_demo",
-    applicationId: body.applicationId || "ca_demo",
-    slot: "KYC",
-    payload: {
-      ...payload,
-      documentType: documentType, // Ensure documentType is in payload
-      documents: payload.documents || [],
-      applicant: normalizedApplicant,
-      ...(normalizedAddress ? { address: normalizedAddress } : {})
-    },
-  };
-}
-
-function sendError(res: express.Response, err: unknown) {
-    // eslint-disable-next-line no-console
-    console.error("onboarding/start failed", err);
-    return res.status(500).json({
-      status: "error",
-      message: (err as Error)?.message || "Unexpected error",
-    });
-  }
-
-/**
- * Start a full onboarding run.
  * Returns traceId immediately and, after a short wait, the final result + audit trail (or pending).
  */
 app.post("/onboarding/start", async (req, res) => {
-    try {
-      const traceId = generateTraceId();
-      const ctx = buildContext(req, "KYC");
+  try {
+    const traceId = generateTraceId();
+    const ctx = buildContext(req, "KYC");
 
-      startOnboarding(ctx, traceId);
+    startOnboarding(ctx, traceId);
 
-      const { status, result } = await waitForResult(traceId);
-      const auditTrail = getTrace(traceId);
-      return res.json({ traceId, status, result, auditTrail });
-    } catch (err) {
-      return sendError(res, err);
-    }
-  });
+    const { status, result } = await waitForResult(traceId);
+    const auditTrail = getTrace(traceId);
+    return res.json({ traceId, status, result, auditTrail });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
 
 /** Fetch audit trail and result for a given traceId (idempotent/async-safe). */
 app.get("/onboarding/trace/:traceId", (req, res) => {

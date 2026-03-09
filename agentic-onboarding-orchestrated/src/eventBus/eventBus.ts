@@ -42,12 +42,6 @@ class EventBus {
     this.subscribe(eventType, onceHandler);
   }
 
-  private unsubscribe(eventType: string, handler: Handler) {
-    const handlers = this.handlers[eventType];
-    if (handlers) {
-      this.handlers[eventType] = handlers.filter(h => h !== handler);
-    }
-  }
 }
 
 export const eventBus = new EventBus();

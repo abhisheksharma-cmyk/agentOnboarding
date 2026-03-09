@@ -7,11 +7,11 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "mock-aml2-agent",
+            "name": "amlAgentSvc",
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\mocks\\mock-aml2-agent.js",
+            "program": "${workspaceFolder}\\agent-services\\aml-agent-service-v2.js",
             "preLaunchTask": "tsc: build - tsconfig.json",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
@@ -20,11 +20,11 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "mock-credit2-agent",
+            "name": "kycCreditSvc",
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\mocks\\mock-credit2-agent.js",
+            "program": "${workspaceFolder}\\agent-services\\credit-agent-service-v2",
             "preLaunchTask": "tsc: build - tsconfig.json",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
@@ -46,11 +46,11 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "nodeKycAgentOLD",
+            "name": "kycAgentSvc",
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}\\src\\agents\\kycAgent.ts",
+            "program": "${workspaceFolder}\\agent-services\\kyc-agent-service-v2",
             //"preLaunchTask": "tsc: build - tsconfig.json",
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
