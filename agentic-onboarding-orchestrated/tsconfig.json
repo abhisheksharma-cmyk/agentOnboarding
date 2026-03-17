@@ -4,7 +4,7 @@
     "moduleResolution": "node",
     "target": "es2020",
     "module": "commonjs",
-    "outDir": "./dist",
+    "outDir": "../orchestrator_dist",
     "rootDir": "./src",
     "strict": true,
     "skipLibCheck": true
